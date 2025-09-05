@@ -3,10 +3,12 @@
 import { useEffect, useState, useMemo } from "react";
 import { useParams } from "react-router-dom";
 import { fetchAssetMetadataFromIPFS } from "@/utils/hedera-integration";
+import { getTokenIdByMetadataCID } from "@/utils/supabase";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { TradingPanel } from "./TradingPanel";
 import {
   ChevronLeft,
   ChevronRight,
@@ -15,7 +17,6 @@ import {
   X,
 } from "lucide-react";
 import type { AssetMetadata } from "@/utils/assets";
-import { TradingPanel } from "./TradingPanel";
 
 const AssetDetails = () => {
   const { metadataCID } = useParams();
@@ -80,14 +81,21 @@ const AssetDetails = () => {
     }
   };
 
+  const [tokenId, setTokenId] = useState<string | null>(null);
+
   useEffect(() => {
     const fetchData = async () => {
       try {
         if (!metadataCID) {
           throw new Error("No metadata CID provided");
         }
-        const data = await fetchAssetMetadataFromIPFS(metadataCID);
-        setAssetData(data);
+        const [assetMetadata, tokenIdData] = await Promise.all([
+          fetchAssetMetadataFromIPFS(metadataCID),
+          getTokenIdByMetadataCID(metadataCID),
+        ]);
+
+        setAssetData(assetMetadata);
+        setTokenId(tokenIdData);
       } catch (err: any) {
         setError(err.message);
       } finally {
@@ -124,8 +132,8 @@ const AssetDetails = () => {
 
   return (
     <div className="max-w-6xl mx-auto p-4">
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 space-y-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="space-y-6">
           {/* Primary Image */}
           <Card className="p-4">
             {assetData.files.primaryImage && (
@@ -172,9 +180,13 @@ const AssetDetails = () => {
               <p>{`${assetData.location.city}, ${assetData.location.state}, ${assetData.location.country}`}</p>
             </div>
 
-            <div className="space-y-2">
-              <h2 className="text-xl font-semibold">Description</h2>
-              <p className="text-gray-600">{assetData.description}</p>
+            <div className="space-y-3 bg-gray-50 p-4 rounded-lg border-l-4 border-blue-500">
+              <h2 className="text-xl font-semibold text-gray-900">
+                Description
+              </h2>
+              <p className="text-gray-800 leading-relaxed text-base font-medium">
+                {assetData.description}
+              </p>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
@@ -272,11 +284,12 @@ const AssetDetails = () => {
         </div>
 
         {/* Trading Section */}
-        <div className="lg:col-span-1">
+        <div>
           <div className="sticky top-6">
             <TradingPanel
               tokenomics={assetData.tokenomics}
               tokenSymbol={assetData.tokenConfig.symbol}
+              tokenId={tokenId || ""}
             />
           </div>
         </div>
@@ -285,6 +298,9 @@ const AssetDetails = () => {
       {/* Media Viewer Dialog */}
       <Dialog open={viewerOpen} onOpenChange={setViewerOpen}>
         <DialogContent className="max-w-7xl h-[90vh] p-0">
+          <DialogTitle className="sr-only">
+            {assetFiles[currentAssetIndex]?.title || "Asset Preview"}
+          </DialogTitle>
           <div className="relative w-full h-full bg-black/95">
             <Button
               variant="ghost"
@@ -352,8 +368,8 @@ const AssetDetails = () => {
 const LoadingSkeleton = () => {
   return (
     <div className="max-w-6xl mx-auto p-4">
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 space-y-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="space-y-6">
           <Skeleton className="h-[400px] w-full" />
           <div className="space-y-4">
             <Skeleton className="h-8 w-3/4" />
@@ -365,7 +381,7 @@ const LoadingSkeleton = () => {
             </div>
           </div>
         </div>
-        <div className="lg:col-span-1">
+        <div>
           <Skeleton className="h-[400px] w-full" />
         </div>
       </div>

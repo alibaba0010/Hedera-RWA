@@ -5,7 +5,7 @@ import { TradingPage } from "./pages/TradingPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { AddAssetPage } from "./pages/AddAssetPage";
 import Marketplace from "./pages/Marketplace";
-import AssetDetails from "./components/Marketplace/AssetDetails";
+import { AssetDetailsPage } from "./pages/AssetDetailsPage";
 
 function App() {
   return (
@@ -13,7 +13,10 @@ function App() {
       <Routes>
         <Route path="/" element={<HomePage />} />
         <Route path="/marketplace" element={<Marketplace />} />
-        <Route path="/marketplace/:metadataCID" element={<AssetDetails />} />
+        <Route
+          path="/marketplace/:metadataCID"
+          element={<AssetDetailsPage />}
+        />
         <Route path="/portfolio" element={<PortfolioPage />} />
         <Route path="/trading" element={<TradingPage />} />
         <Route path="/settings" element={<SettingsPage />} />

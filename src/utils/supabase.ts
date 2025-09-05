@@ -36,6 +36,21 @@ export async function getMetadataCIDFromDatabase() {
     throw new Error("Failed to fetch metadata CID from database");
   }
 }
+
+export async function getTokenIdByMetadataCID(metadataCID: string) {
+  const { data, error } = await supabase
+    .from("asset_metadata")
+    .select("tokenId")
+    .eq("metadataCID", metadataCID)
+    .single();
+
+  if (error) {
+    console.error("Failed to fetch tokenId from Supabase:", error);
+    throw new Error("Failed to fetch tokenId from database");
+  }
+
+  return data?.tokenId;
+}
 export async function fetchDataFromDatabase() {
   const { data, error } = await supabase.from("asset_metadata").select("*");
   if (error) {

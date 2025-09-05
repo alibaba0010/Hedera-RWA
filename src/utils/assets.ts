@@ -53,3 +53,13 @@ export interface AssetMetadata {
   createdAt: string;
   owner: string;
 }
+export interface TradingPanelProps {
+  tokenomics: {
+    pricePerTokenUSD: number;
+    tokenSupply: number;
+    assetValue: number;
+    dividendYield: number;
+  };
+  tokenSymbol: string;
+  tokenId: string; // Add this line
+}
