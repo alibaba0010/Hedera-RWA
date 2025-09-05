@@ -10,7 +10,7 @@ import { associateAccountWithToken } from "./associate";
 import { appConfig } from "./config";
 
 interface WalletType {
-  type: "hashpack" | "metamask";
+  type: "hedera" | "evm" | null;
   accountId?: AccountId | string;
   accountKey?: PrivateKey;
   provider?: any; // MetaMask provider
@@ -34,7 +34,7 @@ export class TokenAssociationManager {
     tokenId: TokenId | string
   ): Promise<boolean> {
     try {
-      if (wallet.type === "hashpack" && wallet.accountId) {
+      if (wallet.type === "hedera" && wallet.accountId) {
         // For HashPack, query account token balance
         const accountInfo =
           await new (require("@hashgraph/sdk").AccountInfoQuery)()
@@ -43,7 +43,7 @@ export class TokenAssociationManager {
         return accountInfo.tokenRelationships.hasOwnProperty(
           tokenId.toString()
         );
-      } else if (wallet.type === "metamask" && wallet.accountId) {
+      } else if (wallet.type === "evm" && wallet.accountId) {
         // For MetaMask, query the contract
         const contractId = ContractId.fromString(tokenId.toString());
         // You'll need to implement this method based on your contract's ABI
@@ -71,7 +71,7 @@ export class TokenAssociationManager {
     tokenId: TokenId | string
   ): Promise<string> {
     try {
-      if (wallet.type === "hashpack" && wallet.accountId && wallet.accountKey) {
+      if (wallet.type === "hedera" && wallet.accountId && wallet.accountKey) {
         // Use existing HashPack association function
         await associateAccountWithToken({
           client: this.client,
@@ -80,7 +80,7 @@ export class TokenAssociationManager {
           tokenId: tokenId,
         });
         return "Token associated successfully with HashPack wallet";
-      } else if (wallet.type === "metamask" && wallet.provider) {
+      } else if (wallet.type === "evm" && wallet.provider) {
         // For MetaMask, call the contract's associate function
         const contractId = ContractId.fromString(tokenId.toString());
         const hash = await this.associateMetaMaskToken(
