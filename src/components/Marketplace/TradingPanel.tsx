@@ -6,9 +6,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { toast, useToast } from "@/components/ui/use-toast";
+import { toast } from "@/components/ui/use-toast";
 import { TokenAssociationManager } from "@/utils/token-association";
-import { Client, AccountId, TokenId } from "@hashgraph/sdk";
+import { Client, TokenId } from "@hashgraph/sdk";
 import {
   ComposedChart,
   Line,
@@ -28,7 +28,10 @@ export const TradingPanel = ({
   tokenSymbol,
   tokenId, // Add this to your TradingPanelProps interface
 }: TradingPanelProps) => {
-  const { accountId, walletType, walletData } = useContext(WalletContext); // wallettype is hedera/evm
+  const { accountId, walletType, walletData, evmAddress, accountKey } =
+    useContext(WalletContext); // wallettype is hedera/evm
+  console.log("Wallet Data: ", walletData);
+  console.log("Account Key: ", accountKey);
   const [amount, setAmount] = useState<string>("");
   const [price, setPrice] = useState<string>(
     tokenomics.pricePerTokenUSD.toString()
@@ -60,16 +63,18 @@ export const TradingPanel = ({
       const client = Client.forTestnet(); // or forMainnet() based on your environment
       const tokenManager = new TokenAssociationManager(client);
 
+      console.log("Evm address in trading panel:", evmAddress);
       const isAssociated = await tokenManager.isTokenAssociated(
         {
           type: walletType === "hedera" ? "hedera" : "evm",
           accountId: accountId,
-          accountKey: walletData?.privateKey, // Only for HashPack
+          accountKey: walletData?.key, // Only for HashPack
           provider: walletType === "evm" ? window.ethereum : undefined, // Only for MetaMask
+          evmAddress: evmAddress ? evmAddress : undefined,
         },
         TokenId.fromString(tokenId)
       );
-
+      console.log("In checkTokenAssociation, isAssociated:", isAssociated);
       if (!isAssociated) {
         const shouldAssociate = window.confirm(
           `This token needs to be associated with your wallet first. Would you like to associate it now?`
@@ -81,8 +86,9 @@ export const TradingPanel = ({
               type: walletType === "hedera" ? "hedera" : "evm",
 
               accountId: accountId,
-              accountKey: walletData?.privateKey,
+              accountKey: walletData?.key,
               provider: walletType === "evm" ? window.ethereum : undefined,
+              evmAddress: evmAddress ? evmAddress : undefined,
             },
             TokenId.fromString(tokenId)
           );

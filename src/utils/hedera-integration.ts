@@ -14,7 +14,7 @@ import { getEnv } from "@/utils";
 
 // Utility functions for Hedera, IPFS, and Mirror Node integration
 // These are stubs to be filled with real logic and API keys as needed
-async function initializeHederaClient(): Promise<{
+export async function initializeHederaClient(): Promise<{
   client: Client;
   treasuryId: AccountId;
   treasuryKey: PrivateKey;

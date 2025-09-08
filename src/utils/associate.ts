@@ -1,73 +1,104 @@
 import {
-  Client,
   AccountId,
-  PrivateKey,
-  TokenId,
-  TransactionReceipt,
   AccountUpdateTransaction,
   TokenAssociateTransaction,
+  TokenId,
+  Client,
+  PrivateKey,
 } from "@hashgraph/sdk";
 
-interface AssociateAccountWithTokenParams {
+interface AssociateParams {
   client: Client;
   accountId: AccountId | string;
-  accountKey: PrivateKey;
+  accountKey?: PrivateKey;
   tokenId: TokenId | string;
-  maxAutoAssociations?: number;
+  desiredAutoSlots?: number;
 }
 
-// Attempts to auto-associate, falls back to manual association if needed
+interface AssociateResult {
+  ok: boolean;
+  mode?: "auto" | "manual";
+  tx?: string;
+  error?: string;
+}
+
+async function signAndExecute(
+  client: Client,
+  tx: any,
+  privateKey: PrivateKey
+): Promise<string> {
+  try {
+    const signed = await tx.freezeWith(client).sign(privateKey);
+    const response = await signed.execute(client);
+    const receipt = await response.getReceipt(client);
+    return receipt.status.toString();
+  } catch (error) {
+    console.error("Error in signAndExecute:", error);
+    throw error;
+  }
+}
+
 export async function associateAccountWithToken({
   client,
   accountId,
   accountKey,
   tokenId,
-  maxAutoAssociations = 10,
-}: AssociateAccountWithTokenParams): Promise<void> {
+  desiredAutoSlots = 10,
+}: AssociateParams): Promise<AssociateResult> {
   try {
-    // 1. Try to set auto-association (if not already set)
-    let autoAssocTx: AccountUpdateTransaction =
-      await new AccountUpdateTransaction()
-        .setAccountId(accountId)
-        .setMaxAutomaticTokenAssociations(maxAutoAssociations)
-        .freezeWith(client)
-        .sign(accountKey);
+    // Convert IDs to their respective objects if they're strings
+    const accountIdObj =
+      typeof accountId === "string"
+        ? AccountId.fromString(accountId)
+        : accountId;
+    const tokenIdObj =
+      typeof tokenId === "string" ? TokenId.fromString(tokenId) : tokenId;
 
-    let autoAssocTxSubmit = await autoAssocTx.execute(client);
-    let autoAssocRx: TransactionReceipt = await autoAssocTxSubmit.getReceipt(
-      client
-    );
+    // If accountId starts with "0x", it's an EVM address
+    const isEvmAddress = accountId.toString().startsWith("0x");
 
-    if (autoAssocRx.status.toString() === "SUCCESS") {
-      console.log(`Auto-association set for account ${accountId}`);
-      // Now, when you transfer the token, it will be auto-associated
-      return;
+    // For EVM addresses, we can still use the Hedera SDK with their corresponding account
+    if (isEvmAddress) {
+      // Direct token association for EVM-based accounts
+      const assocTx = await new TokenAssociateTransaction()
+        .setAccountId(accountIdObj)
+        .setTokenIds([tokenIdObj]);
+
+      if (!accountKey) throw new Error("accountKey is required for signing");
+      const status = await signAndExecute(client, assocTx, accountKey);
+      console.log("Token association complete for EVM account:", status);
+      return { ok: true, mode: "manual", tx: status };
     }
-  } catch (err) {
-    // If auto-association fails (e.g., not supported, already set, or not enough slots), fall back to manual
-    console.log(
-      "Auto-association not possible or already set, falling back to manual association."
-    );
-  }
 
-  // 2. Manual association
-  let manualAssocTx: TokenAssociateTransaction =
-    await new TokenAssociateTransaction()
-      .setAccountId(accountId)
-      .setTokenIds([tokenId])
-      .freezeWith(client)
-      .sign(accountKey);
+    // For native Hedera accounts, try automatic first then manual
+    try {
+      // 1) Try automatic association by increasing maxAutoAssociations
+      const autoTx = await new AccountUpdateTransaction()
+        .setAccountId(accountIdObj)
+        .setMaxAutomaticTokenAssociations(desiredAutoSlots);
 
-  let manualAssocTxSubmit = await manualAssocTx.execute(client);
-  let manualAssocRx = await manualAssocTxSubmit.getReceipt(client);
+      if (!accountKey) throw new Error("accountKey is required for signing");
+      const status = await signAndExecute(client, autoTx, accountKey);
+      console.log("Auto-association setting updated:", status);
+      return { ok: true, mode: "auto", tx: status };
+    } catch (e) {
+      console.warn(
+        "Auto-association update failed, falling back to manual:",
+        e
+      );
+    }
 
-  if (manualAssocRx.status.toString() === "SUCCESS") {
-    console.log(
-      `Manual association successful for account ${accountId} and token ${tokenId}`
-    );
-  } else {
-    throw new Error(
-      `Manual association failed: ${manualAssocRx.status.toString()}`
-    );
+    // 2) Manual association using HTS
+    const assocTx = await new TokenAssociateTransaction()
+      .setAccountId(accountIdObj)
+      .setTokenIds([tokenIdObj]);
+
+    if (!accountKey) throw new Error("accountKey is required for signing");
+    const status = await signAndExecute(client, assocTx, accountKey);
+    console.log("Manual association complete:", status);
+    return { ok: true, mode: "manual", tx: status };
+  } catch (error: any) {
+    console.error("Error during token association:", error);
+    return { ok: false, error: error.message };
   }
 }

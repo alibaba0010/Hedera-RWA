@@ -1,10 +1,13 @@
 import { useEffect, useState, useMemo, createContext, ReactNode } from "react";
 import PropTypes from "prop-types";
 import { useAccount, useConnect, useDisconnect } from "wagmi";
+import { Client, AccountId, AccountInfoQuery } from "@hashgraph/sdk";
+import { initializeHederaClient } from "@/utils/hedera-integration";
 // import { useHashConnect } from "@/hooks/useHashConnect"; // Adjust the import path as needed
 interface WalletContextType {
   walletData: any;
   accountId: string | null;
+  evmAddress: string | null;
   userProfile: any;
   balance: string | null;
   connectWallet: () => Promise<void>;
@@ -16,11 +19,13 @@ interface WalletContextType {
   isPaired: boolean;
   pairingString: string;
   isEvmConnected: boolean;
+  accountKey: string | null;
 }
 
 export const WalletContext = createContext<WalletContextType>({
   walletData: null,
   accountId: null,
+  evmAddress: null,
   userProfile: null,
   balance: null,
   connectWallet: async () => {},
@@ -32,11 +37,14 @@ export const WalletContext = createContext<WalletContextType>({
   isEvmConnected: false,
   isPaired: false,
   pairingString: "",
+  accountKey: null,
 });
 
 const WalletProvider = ({ children }: { children: ReactNode }) => {
+  const [accountKey, setAccountKey] = useState<string | null>(null);
   const [walletData, setWalletData] = useState<any>(null);
   const [accountId, setAccountId] = useState<string | null>(null);
+  const [evmAddress, setEvmAddress] = useState<string | null>(null);
   const [userProfile, setUserProfile] = useState<any>(null);
   const [balance, setBalance] = useState<string | null>(null);
   const [walletType, setWalletType] = useState<"hedera" | "evm" | null>(null);
@@ -104,6 +112,7 @@ const WalletProvider = ({ children }: { children: ReactNode }) => {
               method: "eth_accounts",
             });
             setAccountId(accounts[0]);
+            setEvmAddress(accounts[0]);
             setWalletType("evm");
           } else {
             throw new Error("No EVM wallet found");
@@ -156,6 +165,7 @@ const WalletProvider = ({ children }: { children: ReactNode }) => {
   const disconnect = () => {
     setWalletData(null);
     setAccountId(null);
+    setEvmAddress(null);
     setUserProfile(null);
     setBalance(null);
     setWalletType(null);
@@ -188,6 +198,19 @@ const WalletProvider = ({ children }: { children: ReactNode }) => {
           if (data.account) {
             console.log("Valid Hedera account confirmed: ", data.account);
             setAccountId(data.account);
+
+            try {
+              const { client } = await initializeHederaClient();
+              const accountInfo = await new AccountInfoQuery()
+                .setAccountId(AccountId.fromString(address))
+                .execute(client);
+              const userPublicKey = accountInfo.key;
+              setAccountKey(userPublicKey.toString());
+
+              console.log("User Public Key:", userPublicKey.toString());
+            } catch (err) {
+              console.error("Error fetching account public key:", err);
+            }
           } else {
             console.log("Invalid account data received");
             setAccountId(null);
@@ -267,10 +290,13 @@ const WalletProvider = ({ children }: { children: ReactNode }) => {
       hederaAccountIds,
       isPaired,
       pairingString,
+      evmAddress,
+      accountKey,
     }),
     [
       walletData,
       accountId,
+      evmAddress,
       userProfile,
       balance,
       connectWallet,
@@ -281,6 +307,7 @@ const WalletProvider = ({ children }: { children: ReactNode }) => {
       hederaAccountIds,
       isPaired,
       pairingString,
+      accountKey,
     ]
   );
 
