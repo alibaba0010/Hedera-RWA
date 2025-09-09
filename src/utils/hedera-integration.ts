@@ -90,7 +90,6 @@ export async function createHederaToken({
   totalSupply: number;
   supplyType: "INFINITE" | "FINITE";
   maxSupply?: number | null;
-
   accountId: string;
 }): Promise<string> {
   try {
@@ -100,7 +99,6 @@ export async function createHederaToken({
       .setAccountId(accountId)
       .execute(client);
     const userPublicKey = accountInfo.key;
-    console.log("User Public Key:", userPublicKey.toString());
 
     // Create the token create transaction
     let tokenCreateTx = await new TokenCreateTransaction()
@@ -279,5 +277,21 @@ export async function fetchAssetMetadataFromIPFS(cid: string): Promise<any> {
   } catch (error: any) {
     console.error("Error fetching metadata from IPFS:", error);
     throw new Error(`Failed to fetch metadata: ${error.message}`);
+  }
+}
+export async function fetchTokenInfoFromMirrorNode(
+  tokenId: string
+): Promise<any> {
+  try {
+    const url = `https://testnet.mirrornode.hedera.com/api/v1/tokens/${tokenId}`;
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch token info: ${response.statusText}`);
+    }
+    const data = await response.json();
+    return data;
+  } catch (error: any) {
+    console.error("Error fetching token info from Mirror Node:", error);
+    throw new Error(`Failed to fetch token info: ${error.message}`);
   }
 }

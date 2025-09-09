@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo, createContext, ReactNode } from "react";
 import PropTypes from "prop-types";
 import { useAccount, useConnect, useDisconnect } from "wagmi";
-import { Client, AccountId, AccountInfoQuery } from "@hashgraph/sdk";
+import { AccountId, AccountInfoQuery } from "@hashgraph/sdk";
 import { initializeHederaClient } from "@/utils/hedera-integration";
 // import { useHashConnect } from "@/hooks/useHashConnect"; // Adjust the import path as needed
 interface WalletContextType {
@@ -19,7 +19,6 @@ interface WalletContextType {
   isPaired: boolean;
   pairingString: string;
   isEvmConnected: boolean;
-  accountKey: string | null;
 }
 
 export const WalletContext = createContext<WalletContextType>({
@@ -37,11 +36,9 @@ export const WalletContext = createContext<WalletContextType>({
   isEvmConnected: false,
   isPaired: false,
   pairingString: "",
-  accountKey: null,
 });
 
 const WalletProvider = ({ children }: { children: ReactNode }) => {
-  const [accountKey, setAccountKey] = useState<string | null>(null);
   const [walletData, setWalletData] = useState<any>(null);
   const [accountId, setAccountId] = useState<string | null>(null);
   const [evmAddress, setEvmAddress] = useState<string | null>(null);
@@ -198,19 +195,6 @@ const WalletProvider = ({ children }: { children: ReactNode }) => {
           if (data.account) {
             console.log("Valid Hedera account confirmed: ", data.account);
             setAccountId(data.account);
-
-            try {
-              const { client } = await initializeHederaClient();
-              const accountInfo = await new AccountInfoQuery()
-                .setAccountId(AccountId.fromString(address))
-                .execute(client);
-              const userPublicKey = accountInfo.key;
-              setAccountKey(userPublicKey.toString());
-
-              console.log("User Public Key:", userPublicKey.toString());
-            } catch (err) {
-              console.error("Error fetching account public key:", err);
-            }
           } else {
             console.log("Invalid account data received");
             setAccountId(null);
@@ -291,7 +275,6 @@ const WalletProvider = ({ children }: { children: ReactNode }) => {
       isPaired,
       pairingString,
       evmAddress,
-      accountKey,
     }),
     [
       walletData,
@@ -307,7 +290,6 @@ const WalletProvider = ({ children }: { children: ReactNode }) => {
       hederaAccountIds,
       isPaired,
       pairingString,
-      accountKey,
     ]
   );
 
