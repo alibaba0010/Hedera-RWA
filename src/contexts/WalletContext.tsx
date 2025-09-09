@@ -1,9 +1,6 @@
 import { useEffect, useState, useMemo, createContext, ReactNode } from "react";
 import PropTypes from "prop-types";
 import { useAccount, useConnect, useDisconnect } from "wagmi";
-import { AccountId, AccountInfoQuery } from "@hashgraph/sdk";
-import { initializeHederaClient } from "@/utils/hedera-integration";
-// import { useHashConnect } from "@/hooks/useHashConnect"; // Adjust the import path as needed
 interface WalletContextType {
   walletData: any;
   accountId: string | null;

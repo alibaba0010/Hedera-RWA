@@ -3,17 +3,13 @@ import {
   AccountId,
   TokenId,
   ContractId,
-  AccountInfoQuery,
   TokenAssociateTransaction,
-  TokenMintTransaction,
   PrivateKey,
 } from "@hashgraph/sdk";
 import {
-  fetchTokenInfoFromMirrorNode,
+  checkTokenAssocationMirrorNode,
   initializeHederaClient,
 } from "./hedera-integration";
-import { getEnv } from ".";
-import { hc } from "@/hooks/walletConnect";
 
 interface WalletType {
   type: "hedera" | "evm" | null;
@@ -26,11 +22,7 @@ interface WalletType {
 }
 
 export class TokenAssociationManager {
-  private client: Client;
-
-  constructor(client: Client) {
-    this.client = client;
-  }
+  constructor() {}
 
   /**
    * Check if an account is associated with a token
@@ -43,19 +35,24 @@ export class TokenAssociationManager {
     tokenId: TokenId | string
   ): Promise<boolean> {
     try {
-      const { accountId, type } = wallet;
-      const { client } = await initializeHederaClient();
+      const { accountId, type, evmAddress } = wallet;
 
-      const evmAddress = "0x5518Bd143bf64807104DdB2421f4D8d3A60828F9";
       // console.log("Wallet: ", evmAddress);
       let isAssociated = false;
       if (type === "hedera" && accountId) {
         // For HashPack, query account token balance
-        const tokenInfo = await fetchTokenInfoFromMirrorNode(
-          tokenId.toString()
+        const tokenInfo = await checkTokenAssocationMirrorNode(
+          tokenId.toString(),
+          accountId.toString()
         );
+        console.log("Token Info from Mirror Node: ", tokenInfo);
         isAssociated = tokenInfo ? true : false;
       } else if (type === "evm" && accountId && evmAddress) {
+        const tokenInfo = await checkTokenAssocationMirrorNode(
+          tokenId.toString(),
+          accountId.toString()
+        );
+        console.log("Token Info from Mirror Node: ", tokenInfo);
         // For MetaMask, query the contract
         const contractId = ContractId.fromString(tokenId.toString());
         // You'll need to implement this method based on your contract's ABI
@@ -91,9 +88,8 @@ export class TokenAssociationManager {
         throw new Error("Wallet and tokenId are required");
       }
 
-      const { accountId, type } = wallet;
+      const { accountId, type, evmAddress } = wallet;
       const { client } = await initializeHederaClient();
-      const evmAddress = "0x5518Bd143bf64807104DdB2421f4D8d3A60828F9";
       console.log(`Evm address ${evmAddress} Account ID: ${accountId}`);
 
       // Check if token is already associated
@@ -109,140 +105,41 @@ export class TokenAssociationManager {
           ? AccountId.fromString(accountId)
           : accountId;
       // Handle Hedera wallet (HashPack)
-      if (type === "hedera") {
-        if (!accountId) {
-          throw new Error("Hedera wallet requires accountId");
-        }
-
-        try {
-          // Create the transaction
-          const transaction = await new TokenAssociateTransaction()
-            .setAccountId(accountIdObj!)
-            .setTokenIds([tokenIdObj])
-            .freezeWith(client)
-            .sign(PrivateKey.fromStringECDSA(accountKey!));
-
-          // Execute the signed transaction
-          const response = await transaction.execute(client);
-          console.log("Response: ", response);
-          const receipt = await response.getReceipt(client);
-          console.log("Receipt: ", receipt);
-
-          console.log("Token association complete:", receipt.status.toString());
-
-          // Verify the association was successful
-          const verifyAssociation = await this.isTokenAssociated(
-            wallet,
-            tokenId
-          );
-          if (!verifyAssociation) {
-            throw new Error(
-              "Token association verification failed for Hedera wallet"
-            );
-          }
-
-          return "Token associated successfully with HashPack wallet";
-        } catch (err) {
-          console.error("Error in token association:", err);
-          const errorMessage =
-            err instanceof Error ? err.message : "Unknown error occurred";
-          throw new Error("Failed to associate token: " + errorMessage);
-        }
+      if (!accountId) {
+        throw new Error("Hedera wallet requires accountId");
       }
 
-      // Handle EVM wallet (MetaMask)
-      if (type === "evm") {
-        if (!accountId || !evmAddress) {
-          throw new Error("EVM wallet requires both accountId and evmAddress");
-        }
-
-        // Check if window.ethereum is available
-        if (!window.ethereum) {
-          throw new Error("MetaMask is not installed");
-        }
-        await window.ethereum.request({
-          method: "wallet_requestSnaps",
-          params: {
-            "npm:@hashgraph/hedera-wallet-snap": {}, // request Hedera Snap
-          },
-        });
-
-        try {
-          const network = wallet.network || "testnet";
-          const tokenIdStr =
-            typeof tokenId === "string" ? tokenId : tokenId.toString();
-
-          // Use Hedera Wallet Snap for token association
-          const associateResult = await window.ethereum.request({
-            method: "wallet_invokeSnap",
-            params: {
-              snapId: "npm:@hashgraph/hedera-wallet-snap",
-              request: {
-                method: "hts.associateTokens",
-                params: {
-                  accountId: accountId.toString(),
-                  tokenIds: [tokenIdStr],
-                  network,
-                },
-              },
-            },
-          });
-
-          console.log("Hedera Snap association status:", associateResult);
-
-          // Wait for a short period and verify the association
-          await new Promise((resolve) => setTimeout(resolve, 5000));
-          const verifyAssociation = await this.isTokenAssociated(
-            wallet,
-            tokenId
-          );
-          if (!verifyAssociation) {
-            console.warn(
-              "Token association transaction sent but verification pending. Snap result:",
-              associateResult
-            );
-          }
-
-          return typeof associateResult === "string"
-            ? associateResult
-            : "Token associated successfully with EVM wallet via Hedera Snap";
-        } catch (snapError) {
-          console.warn(
-            "Hedera Snap association failed, falling back to standard association:",
-            snapError
-          );
-        }
-        // Fallback to standard association if Snap is not available or fails
-        const tokenIdObj =
-          typeof tokenId === "string" ? TokenId.fromString(tokenId) : tokenId;
-        const accountIdObj =
-          typeof evmAddress === "string"
-            ? AccountId.fromString(evmAddress)
-            : evmAddress;
-
+      try {
         // Create the transaction
-        const transaction = new TokenAssociateTransaction()
-          .setAccountId(accountIdObj)
+        const transaction = await new TokenAssociateTransaction()
+          .setAccountId(accountIdObj!)
           .setTokenIds([tokenIdObj])
-          .freezeWith(client);
+          .freezeWith(client)
+          .sign(PrivateKey.fromStringECDSA(accountKey!));
 
-        // Execute the transaction
+        // Execute the signed transaction
         const response = await transaction.execute(client);
+        console.log("Response: ", response);
         const receipt = await response.getReceipt(client);
+        console.log("Receipt: ", receipt);
 
-        // Wait for a short period and verify the association
-        await new Promise((resolve) => setTimeout(resolve, 5000));
+        console.log("Token association complete:", receipt.status.toString());
+
+        // Verify the association was successful
         const verifyAssociation = await this.isTokenAssociated(wallet, tokenId);
         if (!verifyAssociation) {
-          console.warn(
-            "Token association transaction sent but verification pending."
+          throw new Error(
+            "Token association verification failed for Hedera wallet"
           );
         }
 
-        return "Token associated successfully with EVM wallet";
+        return "Token associated successfully with HashPack wallet";
+      } catch (err) {
+        console.error("Error in token association:", err);
+        const errorMessage =
+          err instanceof Error ? err.message : "Unknown error occurred";
+        throw new Error("Failed to associate token: " + errorMessage);
       }
-
-      throw new Error(`Unsupported wallet type: ${type}`);
     } catch (error) {
       console.error("Error associating token:", error);
       const errorMessage =
@@ -262,9 +159,7 @@ export class TokenAssociationManager {
     _account: string, // kept for backward compatibility
     evmAddress: string
   ): Promise<boolean> {
-    // Use Hedera Mirror Node REST API to check token association
     try {
-      // Mirror Node expects the EVM address in hex format (0x...)
       // const evmAddress = account;
       const tokenIdStr = contractId.toString();
       // You may want to use mainnet or testnet endpoint based on your environment
@@ -274,6 +169,7 @@ export class TokenAssociationManager {
         throw new Error(`Mirror Node API error: ${response.status}`);
       }
       const data = await response.json();
+      console.log("Data from Mirror Node.........:", data);
       // data.tokens is an array of token objects with 'token_id' property
       const isAssociated = data.tokens?.some(
         (token: any) => token.token_id === tokenIdStr

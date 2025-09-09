@@ -279,19 +279,40 @@ export async function fetchAssetMetadataFromIPFS(cid: string): Promise<any> {
     throw new Error(`Failed to fetch metadata: ${error.message}`);
   }
 }
-export async function fetchTokenInfoFromMirrorNode(
-  tokenId: string
-): Promise<any> {
+export async function checkTokenAssocationMirrorNode(
+  tokenId: string,
+  accountId: string
+): Promise<boolean> {
   try {
-    const url = `https://testnet.mirrornode.hedera.com/api/v1/tokens/${tokenId}`;
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`Failed to fetch token info: ${response.statusText}`);
+    console.log("Checking token association for:", tokenId, accountId);
+    // First check if the account exists and get its tokens
+    const accountUrl = `https://testnet.mirrornode.hedera.com/api/v1/accounts/${accountId}/tokens?limit=100`;
+    const accountResponse = await fetch(accountUrl);
+
+    if (!accountResponse.ok) {
+      if (accountResponse.status === 404) {
+        return false; // Account doesn't exist or has no token associations
+      }
+      throw new Error(
+        `Failed to fetch account info: ${accountResponse.statusText}`
+      );
     }
-    const data = await response.json();
-    return data;
+
+    const accountData = await accountResponse.json();
+    console.log("Account Data from Mirror Node:", accountData);
+    // Check if the token is in the account's token list
+    if (accountData.tokens) {
+      // Find the specific token in the account's token relationships
+      const tokenAssociation = accountData.tokens.find(
+        (token: { token_id: string }) => token.token_id === tokenId
+      );
+
+      return !!tokenAssociation; // Returns true if token is found, false otherwise
+    }
+
+    return false; // No tokens found for this account
   } catch (error: any) {
-    console.error("Error fetching token info from Mirror Node:", error);
-    throw new Error(`Failed to fetch token info: ${error.message}`);
+    console.error("Error checking token association in Mirror Node:", error);
+    throw new Error(`Failed to check token association: ${error.message}`);
   }
 }

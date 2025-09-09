@@ -60,8 +60,7 @@ export const TradingPanel = ({
 
     try {
       setIsCheckingAssociation(true);
-      const client = Client.forTestnet(); // or forMainnet() based on your environment
-      const tokenManager = new TokenAssociationManager(client);
+      const tokenManager = new TokenAssociationManager();
 
       const isAssociated = await tokenManager.isTokenAssociated(
         {
@@ -404,8 +403,7 @@ export const TradingPanel = ({
         tokenId={tokenId}
         onClose={() => setShowAssociationOverlay(false)}
         onCheckAssociation={async () => {
-          const client = Client.forTestnet();
-          const tokenManager = new TokenAssociationManager(client);
+          const tokenManager = new TokenAssociationManager();
           return await tokenManager.isTokenAssociated(
             {
               type: walletType === "hedera" ? "hedera" : "evm",
@@ -422,8 +420,7 @@ export const TradingPanel = ({
             privateKey,
             typeof privateKey
           );
-          const client = Client.forTestnet();
-          const tokenManager = new TokenAssociationManager(client);
+          const tokenManager = new TokenAssociationManager();
           await tokenManager.associateToken(
             {
               type: walletType === "hedera" ? "hedera" : "evm",
