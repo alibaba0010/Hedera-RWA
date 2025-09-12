@@ -31,10 +31,6 @@ export const getConnectedAccountIds = () => {
 };
 export const hcInitPromise = hc.init();
 
-async function walletConnect() {}
-
-export default walletConnect;
-
 export async function walletConnectFcn() {
   const walletConnectProjectId = getEnv("VITE_PUBLIC_PROJECT_ID");
 

@@ -5,7 +5,8 @@ import { WalletContext } from "@/contexts/WalletContext";
 import { useContext } from "react";
 
 export function HeroSection() {
-  const { accountId, connectWallet } = useContext(WalletContext);
+  const { accountId, connectWallet, connectEvmWallet } =
+    useContext(WalletContext);
   return (
     <section className="relative py-20 lg:py-32">
       <div className="container mx-auto px-4">

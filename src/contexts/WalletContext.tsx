@@ -3,88 +3,53 @@ import PropTypes from "prop-types";
 import { useAccount, useConnect, useDisconnect } from "wagmi";
 import { walletConnectFcn } from "@/hooks/walletConnect";
 import { DAppSigner } from "@hashgraph/hedera-wallet-connect";
+import {
+  getUserTokenHbarUsdcBalance,
+  getUserProfile,
+} from "@/utils/mirror-node-client";
 interface WalletContextType {
   walletData: any;
   accountId: string | null;
   evmAddress: string | null;
-  userProfile: any;
   balance: string | null;
+  userProfile: any;
   connectWallet: () => Promise<void>;
   connectEvmWallet: () => Promise<void>;
   disconnect: () => void;
   connected: boolean;
   walletType: "hedera" | "evm" | null;
-  hederaAccountIds: string[];
-  isPaired: boolean;
-  pairingString: string;
   isEvmConnected: boolean;
+  signer?: DAppSigner;
 }
 
 export const WalletContext = createContext<WalletContextType>({
   walletData: null,
   accountId: null,
   evmAddress: null,
-  userProfile: null,
   balance: null,
+  userProfile: null,
   connectWallet: async () => {},
   connectEvmWallet: async () => {},
   disconnect: () => {},
   connected: false,
   walletType: null,
-  hederaAccountIds: [],
   isEvmConnected: false,
-  isPaired: false,
-  pairingString: "",
+  signer: {} as DAppSigner,
 });
 
 const WalletProvider = ({ children }: { children: ReactNode }) => {
   const [walletData, setWalletData] = useState<any>(null);
+  const [userProfile, setUserProfile] = useState<any>(null);
   const [accountId, setAccountId] = useState<string | null>(null);
   const [evmAddress, setEvmAddress] = useState<string | null>(null);
-  const [userProfile, setUserProfile] = useState<any>(null);
   const [balance, setBalance] = useState<string | null>(null);
   const [walletType, setWalletType] = useState<"hedera" | "evm" | null>(null);
-  const [hederaAccountIds, setHederaAccountIds] = useState<string[]>([]);
-  const [isPaired, setIsPaired] = useState(false);
-  const [pairingString, setPairingString] = useState("");
   const [signer, setSigner] = useState<DAppSigner>();
 
   // RainbowKit (wagmi) hooks for EVM
   const { isConnected: isEvmConnected } = useAccount();
   const { connectAsync, connectors } = useConnect();
   const { disconnectAsync: evmDisconnect } = useDisconnect();
-
-  useEffect(() => {
-    let cleanup: (() => void) | undefined;
-    let isMounted = true;
-    (async () => {
-      if (typeof window === "undefined") return;
-      try {
-        if (window !== undefined) {
-          const { useHashConnect } = await import("@/hooks/useHashConnect");
-          const { setupHashConnectListeners } = useHashConnect();
-          cleanup = setupHashConnectListeners(
-            ({ accountIds, isConnected, pairingString }) => {
-              if (!isMounted) return;
-              setHederaAccountIds(accountIds);
-              setIsPaired(isConnected);
-              setPairingString(pairingString);
-              if (isConnected && accountIds.length > 0) {
-                setAccountId(accountIds[0]);
-                setWalletType("hedera");
-              }
-            }
-          );
-        }
-      } catch (e) {
-        // Ignore if not available
-      }
-    })();
-    return () => {
-      isMounted = false;
-      if (cleanup) cleanup();
-    };
-  }, []);
 
   // Hedera wallet connect (dynamic import)
   const connectWallet = async () => {
@@ -100,12 +65,59 @@ const WalletProvider = ({ children }: { children: ReactNode }) => {
         setAccountId(userAccountId);
         setWalletData(dAppConnector);
         setSigner(signer);
+        localStorage.setItem("walletConnected", "true");
+        // Fetch user profile
+        try {
+          const profile = await getUserProfile(userAccountId);
+          setUserProfile(profile);
+        } catch (e) {
+          setUserProfile(null);
+        }
       }
     } catch (error: any) {
       console.log("Error message: ", error.message);
     }
   };
 
+  useEffect(() => {
+    const restoreWalletConnection = async () => {
+      try {
+        if (localStorage.getItem("walletConnected") === "true") {
+          const { dAppConnector } = await walletConnectFcn();
+
+          if (dAppConnector.signers.length > 0) {
+            const signer = dAppConnector.signers[0];
+            const userAccountId = signer.getAccountId().toString();
+
+            setWalletData(dAppConnector);
+            setAccountId(userAccountId);
+            setSigner(signer);
+            // Get balance
+            const newBalance = await getUserTokenHbarUsdcBalance(userAccountId);
+            setBalance(
+              newBalance
+                ? `HBAR: ${newBalance.hbar}, USDC: ${newBalance.usdc}`
+                : null
+            );
+            // Get user profile
+            try {
+              const profile = await getUserProfile(userAccountId);
+              setUserProfile(profile);
+            } catch (e) {
+              setUserProfile(null);
+            }
+          }
+        }
+      } catch (error) {
+        console.error("Error restoring wallet connection:", error);
+        // Clean up if restoration fails
+        localStorage.removeItem("walletConnected");
+      } finally {
+      }
+    };
+
+    restoreWalletConnection();
+  }, []);
   // EVM wallet connect
   const connectEvmWallet = async () => {
     const connector = connectors[0];
@@ -118,9 +130,10 @@ const WalletProvider = ({ children }: { children: ReactNode }) => {
     setWalletData(null);
     setAccountId(null);
     setEvmAddress(null);
-    setUserProfile(null);
     setBalance(null);
     setWalletType(null);
+    localStorage.removeItem("walletConnected");
+
     if (walletType === "evm") {
       evmDisconnect();
     }
@@ -167,33 +180,6 @@ const WalletProvider = ({ children }: { children: ReactNode }) => {
     }
   }, [accountId]);
 
-  useEffect(() => {
-    const getUserProfile = async () => {
-      if (!accountId) return;
-      try {
-        const request = await fetch(
-          "https://api.hashpack.app/user-profile/get",
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({ accountId: accountId, network: "testnet" }),
-          }
-        );
-        if (!request.ok) {
-          console.error(`Failed to fetch user profile: ${request.statusText}`);
-          return;
-        }
-        const response = await request.json();
-        setUserProfile(response);
-      } catch (error) {
-        console.error("Error fetching user profile data:", error);
-      }
-    };
-    getUserProfile();
-  }, [accountId]);
-
   // Dynamically import and use accountBalance
   useEffect(() => {
     if (!accountId) return;
@@ -218,33 +204,29 @@ const WalletProvider = ({ children }: { children: ReactNode }) => {
     () => ({
       walletData,
       accountId,
-      userProfile,
       balance,
+      userProfile,
       connectWallet,
       connectEvmWallet,
       disconnect,
       connected: Boolean(accountId),
       isEvmConnected,
       walletType,
-      hederaAccountIds,
-      isPaired,
-      pairingString,
       evmAddress,
+      signer,
     }),
     [
       walletData,
       accountId,
       evmAddress,
-      userProfile,
       balance,
+      userProfile,
       connectWallet,
       connectEvmWallet,
       disconnect,
       isEvmConnected,
       walletType,
-      hederaAccountIds,
-      isPaired,
-      pairingString,
+      signer,
     ]
   );
 
