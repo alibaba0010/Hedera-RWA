@@ -9,7 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/components/ui/use-toast";
 import { TokenAssociationOverlay } from "./TokenAssociationOverlay";
 import { TokenAssociationManager } from "@/utils/token-association";
-import { Client, TokenId } from "@hashgraph/sdk";
+import { TokenId } from "@hashgraph/sdk";
 import {
   ComposedChart,
   Line,
@@ -23,6 +23,7 @@ import {
 import { WalletContext } from "@/contexts/WalletContext";
 import { TradingPanelProps } from "@/utils/assets";
 import { generateCandlestickData, generateOrderBook } from "@/utils/trading";
+import { buyAssetToken } from "@/utils/hedera-integration";
 
 export const TradingPanel = ({
   tokenomics,
@@ -40,10 +41,15 @@ export const TradingPanel = ({
   const [isLoading, setIsLoading] = useState(false);
   const [isCheckingAssociation, setIsCheckingAssociation] = useState(false);
   const [orderType, setOrderType] = useState<"market" | "limit">("market");
+  const [tradingPair, setTradingPair] = useState<"USDC" | "HBAR">("USDC");
   const [showAssociationOverlay, setShowAssociationOverlay] = useState(false);
+
   useEffect(() => {
-    const data = generateCandlestickData(tokenomics.pricePerTokenUSD);
-    const orders = generateOrderBook(tokenomics.pricePerTokenUSD);
+    // For demo purposes, simulate different prices for HBAR and USDC
+    const basePrice = tokenomics.pricePerTokenUSD;
+    const price = tradingPair === "HBAR" ? basePrice * 5 : basePrice; // Simulated HBAR price
+    const data = generateCandlestickData(price);
+    const orders = generateOrderBook(price);
     setChartData(data);
     setOrderBook(orders);
   }, [tokenomics.pricePerTokenUSD]);
@@ -91,7 +97,14 @@ export const TradingPanel = ({
   };
 
   const handleBuy = async () => {
-    if (!amount || Number(amount) <= 0) return;
+    if (!amount || Number(amount) <= 0 || !accountId) {
+      toast({
+        title: "Error",
+        description: "Please enter a valid amount and connect your wallet",
+        variant: "destructive",
+      });
+      return;
+    }
 
     try {
       setIsLoading(true);
@@ -105,14 +118,24 @@ export const TradingPanel = ({
       if (!isAssociated) {
         return;
       }
-      // Proceed with buy order
-      // Your buy order implementation here
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      toast({
-        title: "Success",
-        description: `Buy order placed for ${amount} ${tokenSymbol} tokens`,
-      });
+      console.log("Amount:", amount);
+      // Execute the buy order using buyAssetToken
+      const { status } = await buyAssetToken(
+        tokenId,
+        accountId,
+        Number(amount)
+      );
+      console.log("Buy order status:", status);
+      if (status === "SUCCESS") {
+        toast({
+          title: "Success",
+          description: `Successfully purchased ${amount} ${tokenSymbol} tokens`,
+        });
+      } else {
+        throw new Error(`Transaction failed with status: ${status}`);
+      }
     } catch (error: any) {
+      console.error("Buy order error:", error);
       toast({
         title: "Error",
         description: error.message || "Failed to place buy order",
@@ -169,13 +192,36 @@ export const TradingPanel = ({
       <Card className="bg-gray-900 border-gray-800 text-white">
         <div className="p-4 space-y-4">
           <div className="flex items-center justify-between border-b border-gray-800 pb-3">
-            <div>
-              <h2 className="text-lg font-bold text-white">
-                {tokenSymbol}/USD
-              </h2>
+            <div className="space-y-2">
+              <div className="flex space-x-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setTradingPair("USDC")}
+                  className={`${
+                    tradingPair === "USDC" ? "bg-gray-700" : "hover:bg-gray-800"
+                  }`}
+                >
+                  {tokenSymbol}/USDC
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setTradingPair("HBAR")}
+                  className={`${
+                    tradingPair === "HBAR" ? "bg-gray-700" : "hover:bg-gray-800"
+                  }`}
+                >
+                  {tokenSymbol}/HBAR
+                </Button>
+              </div>
               <div className="flex items-center space-x-3">
                 <span className="text-2xl font-bold text-white">
-                  ${tokenomics.pricePerTokenUSD.toFixed(4)}
+                  {tradingPair === "HBAR" ? "ℏ" : "$"}
+                  {(tradingPair === "HBAR"
+                    ? tokenomics.pricePerTokenUSD * 5 // Simulated HBAR price
+                    : tokenomics.pricePerTokenUSD
+                  ).toFixed(4)}
                 </span>
                 <span
                   className={`text-sm px-2 py-1 rounded ${
@@ -252,7 +298,11 @@ export const TradingPanel = ({
 
               {amount && Number(amount) > 0 && (
                 <div className="text-xs text-gray-400">
-                  Total: ${totalValue.toFixed(2)}
+                  Total: {tradingPair === "HBAR" ? "ℏ" : "$"}
+                  {(tradingPair === "HBAR"
+                    ? totalValue * 5 // Simulated HBAR total
+                    : totalValue
+                  ).toFixed(2)}
                 </div>
               )}
 
@@ -317,7 +367,11 @@ export const TradingPanel = ({
                   ))}
                 {/* Current price */}
                 <div className="text-center py-1 text-sm font-bold border-y border-gray-800">
-                  ${tokenomics.pricePerTokenUSD.toFixed(4)}
+                  {tradingPair === "HBAR" ? "ℏ" : "$"}
+                  {(tradingPair === "HBAR"
+                    ? tokenomics.pricePerTokenUSD * 5 // Simulated HBAR price
+                    : tokenomics.pricePerTokenUSD
+                  ).toFixed(4)}
                 </div>
                 {/* Bids (Buy orders) */}
                 {orderBook.bids.slice(0, 4).map((bid: any, i: number) => (

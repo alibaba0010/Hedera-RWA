@@ -1,6 +1,8 @@
 import { useEffect, useState, useMemo, createContext, ReactNode } from "react";
 import PropTypes from "prop-types";
 import { useAccount, useConnect, useDisconnect } from "wagmi";
+import { walletConnectFcn } from "@/hooks/walletConnect";
+import { DAppSigner } from "@hashgraph/hedera-wallet-connect";
 interface WalletContextType {
   walletData: any;
   accountId: string | null;
@@ -45,6 +47,7 @@ const WalletProvider = ({ children }: { children: ReactNode }) => {
   const [hederaAccountIds, setHederaAccountIds] = useState<string[]>([]);
   const [isPaired, setIsPaired] = useState(false);
   const [pairingString, setPairingString] = useState("");
+  const [signer, setSigner] = useState<DAppSigner>();
 
   // RainbowKit (wagmi) hooks for EVM
   const { isConnected: isEvmConnected } = useAccount();
@@ -85,66 +88,21 @@ const WalletProvider = ({ children }: { children: ReactNode }) => {
 
   // Hedera wallet connect (dynamic import)
   const connectWallet = async () => {
-    if (typeof window === "undefined") return;
-
     try {
-      const WalletConnectModule = await import("@/hooks/walletConnect");
-      if (!isPaired) {
-        await WalletConnectModule.hc.init();
-        WalletConnectModule.hc.openPairingModal();
-        // Wait for pairing for up to 4 seconds
-        await new Promise((resolve) => setTimeout(resolve, 4000));
-        if (!isPaired) {
-          // Not paired after timeout, try EVM wallet
-          if (window.ethereum) {
-            const { addOrSwitchHederaTestnet } = await import(
-              "@/hooks/useEvmWallet"
-            );
-            await window.ethereum.request({ method: "eth_requestAccounts" });
-            await addOrSwitchHederaTestnet();
-            const accounts = await window.ethereum.request({
-              method: "eth_accounts",
-            });
-            setAccountId(accounts[0]);
-            setEvmAddress(accounts[0]);
-            setWalletType("evm");
-          } else {
-            throw new Error("No EVM wallet found");
-          }
-        }
-        return;
-      } else {
-        // If already paired, disconnect
-        WalletConnectModule.hc.disconnect();
-        setHederaAccountIds([]);
-        setIsPaired(false);
-        setPairingString("");
-        setAccountId(null);
-        setWalletType(null);
-        return;
+      if (typeof window === "undefined") return;
+      const { dAppConnector } = await walletConnectFcn();
+      console.log("Dapp Connector:   ", dAppConnector);
+      await dAppConnector.openModal();
+      const signer = dAppConnector.signers[0];
+      if (signer) {
+        const userAccountId = signer.getAccountId().toString();
+        console.log("User Account id:", userAccountId);
+        setAccountId(userAccountId);
+        setWalletData(dAppConnector);
+        setSigner(signer);
       }
-    } catch (e) {
-      console.log("HashPack connection failed, trying EVM wallet:", e);
-      try {
-        if (window.ethereum) {
-          const { addOrSwitchHederaTestnet } = await import(
-            "@/hooks/useEvmWallet"
-          );
-          await window.ethereum.request({ method: "eth_requestAccounts" });
-          await addOrSwitchHederaTestnet();
-          const accounts = await window.ethereum.request({
-            method: "eth_accounts",
-          });
-          setAccountId(accounts[0]);
-          setWalletType("evm");
-        } else {
-          throw new Error("No EVM wallet found");
-        }
-      } catch (err) {
-        console.error("EVM wallet connection failed:", err);
-        setAccountId(null);
-        setWalletType(null);
-      }
+    } catch (error: any) {
+      console.log("Error message: ", error.message);
     }
   };
 

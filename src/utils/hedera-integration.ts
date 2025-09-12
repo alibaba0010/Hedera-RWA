@@ -9,6 +9,7 @@ import {
   TokenType,
   TokenSupplyType,
   AccountInfoQuery,
+  TransferTransaction,
 } from "@hashgraph/sdk";
 import { getEnv } from "@/utils";
 
@@ -316,3 +317,38 @@ export async function checkTokenAssocationMirrorNode(
     throw new Error(`Failed to check token association: ${error.message}`);
   }
 }
+export const buyAssetToken = async (
+  tokenId: string,
+  accountId: string,
+  amount: number
+): Promise<{ status: string; receipt: any }> => {
+  try {
+    const { client, treasuryId, treasuryKey } = await initializeHederaClient();
+
+    // Create the transfer transaction
+    const tokenTransferTx = await new TransferTransaction()
+      .addTokenTransfer(tokenId, treasuryId, -amount) // Deduct from treasury
+      .addTokenTransfer(tokenId, accountId, amount) // Add to buyer
+      .freezeWith(client)
+      .sign(treasuryKey);
+    console.log("Token Transfer Transaction:", tokenTransferTx);
+    // Execute the transaction
+    const tokenTransferSubmit = await tokenTransferTx.execute(client);
+    const tokenTransferRx = await tokenTransferSubmit.getReceipt(client);
+
+    if (tokenTransferRx.status.toString() !== "SUCCESS") {
+      throw new Error(
+        `Transaction failed with status: ${tokenTransferRx.status}`
+      );
+    }
+
+    console.log(`Token transfer successful: ${tokenTransferRx.status} ✅`);
+    return {
+      status: tokenTransferRx.status.toString(),
+      receipt: tokenTransferRx,
+    };
+  } catch (error: any) {
+    console.error("Error in buyAssetToken:", error);
+    throw new Error(`Failed to buy asset token: ${error.message}`);
+  }
+};
