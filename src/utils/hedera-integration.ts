@@ -10,8 +10,10 @@ import {
   TokenSupplyType,
   AccountInfoQuery,
   TransferTransaction,
+  Hbar,
 } from "@hashgraph/sdk";
 import { getEnv } from "@/utils";
+import { DAppSigner } from "@hashgraph/hedera-wallet-connect";
 
 // Utility functions for Hedera, IPFS, and Mirror Node integration
 // These are stubs to be filled with real logic and API keys as needed
@@ -83,6 +85,7 @@ export async function createHederaToken({
   supplyType,
   maxSupply,
   accountId,
+  signer,
 }: {
   name: string;
   symbol: string;
@@ -92,9 +95,10 @@ export async function createHederaToken({
   supplyType: "INFINITE" | "FINITE";
   maxSupply?: number | null;
   accountId: string;
+  signer: DAppSigner;
 }): Promise<string> {
   try {
-    const { client, treasuryId, treasuryKey } = await initializeHederaClient();
+    const { client } = await initializeHederaClient();
     // Get user's public key from their account
     const accountInfo = await new AccountInfoQuery()
       .setAccountId(accountId)
@@ -109,29 +113,27 @@ export async function createHederaToken({
       .setDecimals(decimals)
       .setInitialSupply(initialSupply)
       .setMaxSupply(totalSupply)
-      .setTreasuryAccountId(treasuryId)
+      .setTreasuryAccountId(accountId)
       .setAdminKey(userPublicKey)
       .setSupplyKey(userPublicKey)
       .setSupplyType(
         supplyType === "INFINITE"
           ? TokenSupplyType.Infinite
           : TokenSupplyType.Finite
-      );
+      )
+      .setMaxTransactionFee(new Hbar(20))
+      .freezeWithSigner(signer);
 
     // If supply type is finite, set the max supply
     if (supplyType === "FINITE" && maxSupply) {
       tokenCreateTx.setMaxSupply(maxSupply);
     }
+    console.log("Token Create Transaction:", tokenCreateTx);
 
-    // Freeze the transaction for signing
-    const frozenTx = await tokenCreateTx.freezeWith(client);
-
-    // Sign the transaction with the treasury key
-    const signedTx = await frozenTx.sign(treasuryKey);
-
-    // Submit the transaction
-    const tokenCreateSubmit = await signedTx.execute(client);
-
+    // Sign the transaction with the signer
+    const tokenCreateSign = await tokenCreateTx.signWithSigner(signer);
+    const tokenCreateSubmit = await tokenCreateSign.executeWithSigner(signer);
+    console.log("Token Create submit: ", tokenCreateSubmit);
     // Get the transaction receipt
     const tokenCreateRx = await tokenCreateSubmit.getReceipt(client);
 
@@ -168,7 +170,6 @@ export async function sendHcsMessage(
 }> {
   try {
     const { client } = await initializeHederaClient();
-
     // Convert message to string if it's not already
     const messageString =
       typeof message === "string" ? message : JSON.stringify(message);
@@ -351,4 +352,27 @@ export const buyAssetToken = async (
     console.error("Error in buyAssetToken:", error);
     throw new Error(`Failed to buy asset token: ${error.message}`);
   }
+};
+
+export const sellAssetToken = async (
+  tokenId: string,
+  accountId: string,
+  accountKey: PrivateKey,
+  amount: number
+): Promise<any> => {
+  try {
+    const { client, treasuryId } = await initializeHederaClient();
+
+    // Create the transfer transaction
+    const tokenTransferTx = await new TransferTransaction()
+      .addTokenTransfer(tokenId, accountId, -amount) // Deduct from seller
+      .addTokenTransfer(tokenId, treasuryId, amount) // Add to treasury
+      .freezeWith(client)
+      .sign(accountKey); // Sign with seller's key
+    console.log("Token Transfer Transaction:", tokenTransferTx);
+    // Execute the transaction
+    const tokenTransferSubmit = await tokenTransferTx.execute(client);
+    const tokenTransferRx = await tokenTransferSubmit.getReceipt(client);
+    console.log();
+  } catch (e) {}
 };

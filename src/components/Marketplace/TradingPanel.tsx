@@ -7,7 +7,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/components/ui/use-toast";
-import { TokenAssociationOverlay } from "./TokenAssociationOverlay";
 import { TokenAssociationManager } from "@/utils/token-association";
 import { TokenId } from "@hashgraph/sdk";
 import {
@@ -30,7 +29,8 @@ export const TradingPanel = ({
   tokenSymbol,
   tokenId, // Add this to your TradingPanelProps interface
 }: TradingPanelProps) => {
-  const { accountId, walletType, evmAddress } = useContext(WalletContext); // wallettype is hedera/evm
+  const { accountId, walletType, evmAddress, signer } =
+    useContext(WalletContext); // wallettype is hedera/evm
   const [amount, setAmount] = useState<string>("");
   const [price, setPrice] = useState<string>(
     tokenomics.pricePerTokenUSD.toString()
@@ -42,7 +42,6 @@ export const TradingPanel = ({
   const [isCheckingAssociation, setIsCheckingAssociation] = useState(false);
   const [orderType, setOrderType] = useState<"market" | "limit">("market");
   const [tradingPair, setTradingPair] = useState<"USDC" | "HBAR">("USDC");
-  const [showAssociationOverlay, setShowAssociationOverlay] = useState(false);
 
   useEffect(() => {
     // For demo purposes, simulate different prices for HBAR and USDC
@@ -79,7 +78,7 @@ export const TradingPanel = ({
       );
       console.log("In checkTokenAssociation, isAssociated:", isAssociated);
       if (!isAssociated) {
-        setShowAssociationOverlay(true);
+        // setShowAssociationOverlay(true);
         return false;
       }
 
@@ -450,43 +449,6 @@ export const TradingPanel = ({
           </div>
         </div>
       </Card>
-
-      {/* Token Association Overlay */}
-      <TokenAssociationOverlay
-        isOpen={showAssociationOverlay}
-        tokenId={tokenId}
-        onClose={() => setShowAssociationOverlay(false)}
-        onCheckAssociation={async () => {
-          const tokenManager = new TokenAssociationManager();
-          return await tokenManager.isTokenAssociated(
-            {
-              type: walletType === "hedera" ? "hedera" : "evm",
-              accountId: accountId ?? undefined,
-              provider: walletType === "evm" ? window.ethereum : undefined,
-              evmAddress: evmAddress ? evmAddress : undefined,
-            },
-            TokenId.fromString(tokenId)
-          );
-        }}
-        onAssociateWithPrivateKey={async (privateKey) => {
-          console.log(
-            "Associating token with private key:",
-            privateKey,
-            typeof privateKey
-          );
-          const tokenManager = new TokenAssociationManager();
-          await tokenManager.associateToken(
-            {
-              type: walletType === "hedera" ? "hedera" : "evm",
-              accountId: accountId ?? undefined,
-              provider: walletType === "evm" ? window.ethereum : undefined,
-              evmAddress: evmAddress ? evmAddress : undefined,
-            },
-            TokenId.fromString(tokenId),
-            privateKey
-          );
-        }}
-      />
     </div>
   );
 };

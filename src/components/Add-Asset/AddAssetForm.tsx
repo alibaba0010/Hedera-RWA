@@ -76,7 +76,7 @@ const SUBMISSION_STEPS = [
 ];
 
 const AddAssetForm: FC = () => {
-  const { accountId } = useContext(WalletContext);
+  const { accountId, signer } = useContext(WalletContext);
 
   const [form, setForm] = useState<AssetForm>(initialForm);
   const [step, setStep] = useState(0);
@@ -436,6 +436,35 @@ const AddAssetForm: FC = () => {
         // Step 2: Create metadata object
         const assetValue = Number(assetValueBase.replace(/,/g, ""));
         const supplyValue = Number(supplyBase.replace(/,/g, ""));
+
+        setCompletedSubmissionSteps((prev) => [...prev, 1]); // Mark metadata creation step complete
+        setCurrentSubmissionStep(2);
+        setShowStepComplete(true);
+        // Step 4: Create Hedera token
+        if (!accountId || !signer) return;
+
+        const tokenId = await createHederaToken({
+          name: form.tokenName,
+          symbol: form.tokenSymbol,
+          decimals: Number(form.decimals),
+          initialSupply: calculatedInitialSupply,
+          totalSupply: supplyValue,
+          accountId,
+          signer,
+          supplyType: form.supplyType === "infinite" ? "INFINITE" : "FINITE",
+          maxSupply: form.supplyType === "finite" ? supplyValue : null,
+        });
+
+        setCompletedSubmissionSteps((prev) => [...prev, 2]); // Mark token creation step complete
+        setCurrentSubmissionStep(3);
+        setShowStepComplete(true);
+
+        // Step 6: Publish to Registry
+        setCompletedSubmissionSteps((prev) => [...prev, 3]); // Mark registry publishing step complete
+        setCurrentSubmissionStep(4);
+        setShowStepComplete(true);
+
+        // Step 7: Send message to HCS topic with file hashes
         const metadata = {
           name: form.assetName,
           description: form.assetDescription,
@@ -459,6 +488,7 @@ const AddAssetForm: FC = () => {
             supplyType: form.supplyType,
             kycKey: form.kycKey || undefined,
             freezeKey: form.freezeKey || undefined,
+            id: tokenId,
           },
           additionalInfo: {
             insuranceDetails: form.insuranceDetails,
@@ -467,25 +497,9 @@ const AddAssetForm: FC = () => {
           createdAt: new Date().toISOString(),
           owner: accountId,
         };
-
-        if (!accountId) return;
         // Step 3: Upload metadata to IPFS
         const metadataCID = await uploadJSONToIPFS(metadata);
-        setCompletedSubmissionSteps((prev) => [...prev, 1]); // Mark metadata creation step complete
-        setCurrentSubmissionStep(2);
-        setShowStepComplete(true);
         console.log("Meta CID: ", metadataCID);
-        // Step 4: Create Hedera token
-        const tokenId = await createHederaToken({
-          name: form.tokenName,
-          symbol: form.tokenSymbol,
-          decimals: Number(form.decimals),
-          initialSupply: calculatedInitialSupply,
-          totalSupply: supplyValue,
-          accountId,
-          supplyType: form.supplyType === "infinite" ? "INFINITE" : "FINITE",
-          maxSupply: form.supplyType === "finite" ? supplyValue : null,
-        });
         const data = {
           metadataCID,
           tokenId,
@@ -493,20 +507,8 @@ const AddAssetForm: FC = () => {
           created_at: new Date().toISOString(),
         };
         await saveMetadataCIDToDatabase(data);
-
-        console.log("Token Id: ", tokenId);
-
-        setCompletedSubmissionSteps((prev) => [...prev, 2]); // Mark token creation step complete
-        setCurrentSubmissionStep(3);
-        setShowStepComplete(true);
-
-        // Step 6: Publish to Registry
         await publishToRegistry(tokenId, metadataCID);
-        setCompletedSubmissionSteps((prev) => [...prev, 3]); // Mark registry publishing step complete
-        setCurrentSubmissionStep(4);
-        setShowStepComplete(true);
 
-        // Step 7: Send message to HCS topic with file hashes
         const hcsTopicId = getEnv("VITE_PUBLIC_HEDERA_ASSET_TOPIC");
         await sendHcsMessage(hcsTopicId, {
           type: "ASSET_CREATED",

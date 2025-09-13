@@ -33,11 +33,10 @@ export function WalletConnection() {
     accountId,
     // connectEvmWallet,
     balance,
-    // walletType,
+    walletType,
     userProfile,
   } = useContext(WalletContext);
   const { toast } = useToast();
-  console.log("Balance: ", balance);
   const handleCopyAddress = () => {
     if (accountId) {
       navigator.clipboard.writeText(accountId);
@@ -83,10 +82,10 @@ export function WalletConnection() {
       <DropdownMenuContent className="w-56" align="end">
         <DropdownMenuLabel>
           <div className="flex flex-col gap-2">
-            {/* <div className="font-normal text-xs text-muted-foreground">
+            <div className="font-normal text-xs text-muted-foreground">
               Connected with{" "}
               {walletType === "hedera" ? "HashPack" : "EVM Wallet"}
-            </div> */}
+            </div>
             <div className="font-semibold">{formattedBalance}</div>
           </div>
         </DropdownMenuLabel>

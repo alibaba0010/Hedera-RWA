@@ -7,6 +7,7 @@ import {
   getUserTokenHbarUsdcBalance,
   getUserProfile,
 } from "@/utils/mirror-node-client";
+import { getBalanceFromMirrorNode } from "@/hooks/accountBalance";
 interface WalletContextType {
   walletData: any;
   accountId: string | null;
@@ -45,26 +46,27 @@ const WalletProvider = ({ children }: { children: ReactNode }) => {
   const [balance, setBalance] = useState<string | null>(null);
   const [walletType, setWalletType] = useState<"hedera" | "evm" | null>(null);
   const [signer, setSigner] = useState<DAppSigner>();
-
+  console.log("WalletData: ", walletData);
   // RainbowKit (wagmi) hooks for EVM
   const { isConnected: isEvmConnected } = useAccount();
   const { connectAsync, connectors } = useConnect();
   const { disconnectAsync: evmDisconnect } = useDisconnect();
-
   // Hedera wallet connect (dynamic import)
   const connectWallet = async () => {
     try {
       if (typeof window === "undefined") return;
+      // const WalletConnectModule = await import("@/hooks/walletConnect");
+      // await WalletConnectModule.hc.init();
+      // console.log("WalletConnectModule: ", WalletConnectModule);
       const { dAppConnector } = await walletConnectFcn();
-      console.log("Dapp Connector:   ", dAppConnector);
       await dAppConnector.openModal();
       const signer = dAppConnector.signers[0];
       if (signer) {
         const userAccountId = signer.getAccountId().toString();
-        console.log("User Account id:", userAccountId);
         setAccountId(userAccountId);
         setWalletData(dAppConnector);
         setSigner(signer);
+        setWalletType("hedera");
         localStorage.setItem("walletConnected", "true");
         // Fetch user profile
         try {
@@ -79,45 +81,6 @@ const WalletProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  useEffect(() => {
-    const restoreWalletConnection = async () => {
-      try {
-        if (localStorage.getItem("walletConnected") === "true") {
-          const { dAppConnector } = await walletConnectFcn();
-
-          if (dAppConnector.signers.length > 0) {
-            const signer = dAppConnector.signers[0];
-            const userAccountId = signer.getAccountId().toString();
-
-            setWalletData(dAppConnector);
-            setAccountId(userAccountId);
-            setSigner(signer);
-            // Get balance
-            const newBalance = await getUserTokenHbarUsdcBalance(userAccountId);
-            setBalance(
-              newBalance
-                ? `HBAR: ${newBalance.hbar}, USDC: ${newBalance.usdc}`
-                : null
-            );
-            // Get user profile
-            try {
-              const profile = await getUserProfile(userAccountId);
-              setUserProfile(profile);
-            } catch (e) {
-              setUserProfile(null);
-            }
-          }
-        }
-      } catch (error) {
-        console.error("Error restoring wallet connection:", error);
-        // Clean up if restoration fails
-        localStorage.removeItem("walletConnected");
-      } finally {
-      }
-    };
-
-    restoreWalletConnection();
-  }, []);
   // EVM wallet connect
   const connectEvmWallet = async () => {
     const connector = connectors[0];
@@ -180,7 +143,6 @@ const WalletProvider = ({ children }: { children: ReactNode }) => {
     }
   }, [accountId]);
 
-  // Dynamically import and use accountBalance
   useEffect(() => {
     if (!accountId) return;
     let isMounted = true;
@@ -189,6 +151,7 @@ const WalletProvider = ({ children }: { children: ReactNode }) => {
         const { default: accountBalance } = await import(
           "@/hooks/accountBalance"
         );
+        await getBalanceFromMirrorNode(accountId);
         const newBalance = await accountBalance(accountId);
         if (isMounted) setBalance(newBalance as string | null);
       } catch (e) {
