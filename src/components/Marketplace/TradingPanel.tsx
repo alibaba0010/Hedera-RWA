@@ -30,7 +30,7 @@ export const TradingPanel = ({
   tokenId, // Add this to your TradingPanelProps interface
 }: TradingPanelProps) => {
   const { accountId, walletType, evmAddress, signer } =
-    useContext(WalletContext); // wallettype is hedera/evm
+    useContext(WalletContext);
   const [amount, setAmount] = useState<string>("");
   const [price, setPrice] = useState<string>(
     tokenomics.pricePerTokenUSD.toString()
@@ -41,7 +41,7 @@ export const TradingPanel = ({
   const [isLoading, setIsLoading] = useState(false);
   const [isCheckingAssociation, setIsCheckingAssociation] = useState(false);
   const [orderType, setOrderType] = useState<"market" | "limit">("market");
-  const [tradingPair, setTradingPair] = useState<"USDC" | "HBAR">("USDC");
+  const [tradingPair, setTradingPair] = useState<"USDC" | "HBAR">("HBAR");
 
   useEffect(() => {
     // For demo purposes, simulate different prices for HBAR and USDC
@@ -78,11 +78,24 @@ export const TradingPanel = ({
       );
       console.log("In checkTokenAssociation, isAssociated:", isAssociated);
       if (!isAssociated) {
-        // setShowAssociationOverlay(true);
-        return false;
+        await tokenManager.associateToken(
+          {
+            type: walletType === "hedera" ? "hedera" : "evm",
+            accountId: accountId ?? undefined,
+            signer,
+            provider: walletType === "evm" ? window.ethereum : undefined, // Only for MetaMask
+            evmAddress: evmAddress ? evmAddress : undefined,
+            snapEnabled: false,
+            network: "testnet",
+          },
+          TokenId.fromString(tokenId)
+        );
+        toast({
+          title: "Success",
+          description: `Successfully associated with ${tokenSymbol} token`,
+        });
       }
-
-      return true;
+      return isAssociated;
     } catch (error: any) {
       toast({
         title: "Error",
@@ -114,7 +127,7 @@ export const TradingPanel = ({
         "Token is associated, proceeding with buy order...",
         isAssociated
       );
-      if (!isAssociated) {
+      if (!isAssociated || !signer) {
         return;
       }
       console.log("Amount:", amount);
@@ -122,7 +135,8 @@ export const TradingPanel = ({
       const { status } = await buyAssetToken(
         tokenId,
         accountId,
-        Number(amount)
+        Number(amount),
+        signer
       );
       console.log("Buy order status:", status);
       if (status === "SUCCESS") {
@@ -196,22 +210,22 @@ export const TradingPanel = ({
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => setTradingPair("USDC")}
-                  className={`${
-                    tradingPair === "USDC" ? "bg-gray-700" : "hover:bg-gray-800"
-                  }`}
-                >
-                  {tokenSymbol}/USDC
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
                   onClick={() => setTradingPair("HBAR")}
                   className={`${
                     tradingPair === "HBAR" ? "bg-gray-700" : "hover:bg-gray-800"
                   }`}
                 >
                   {tokenSymbol}/HBAR
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setTradingPair("USDC")}
+                  className={`${
+                    tradingPair === "USDC" ? "bg-gray-700" : "hover:bg-gray-800"
+                  }`}
+                >
+                  {tokenSymbol}/USDC
                 </Button>
               </div>
               <div className="flex items-center space-x-3">

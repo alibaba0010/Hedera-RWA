@@ -11,6 +11,7 @@ import {
   AccountInfoQuery,
   TransferTransaction,
   Hbar,
+  TokenMintTransaction,
 } from "@hashgraph/sdk";
 import { getEnv } from "@/utils";
 import { DAppSigner } from "@hashgraph/hedera-wallet-connect";
@@ -81,7 +82,6 @@ export async function createHederaToken({
   symbol,
   decimals,
   initialSupply,
-  totalSupply,
   supplyType,
   maxSupply,
   accountId,
@@ -91,20 +91,19 @@ export async function createHederaToken({
   symbol: string;
   decimals: number;
   initialSupply: number;
-  totalSupply: number;
   supplyType: "INFINITE" | "FINITE";
   maxSupply?: number | null;
   accountId: string;
   signer: DAppSigner;
 }): Promise<string> {
   try {
-    const { client } = await initializeHederaClient();
+    const { client, treasuryKey, treasuryId } = await initializeHederaClient();
     // Get user's public key from their account
     const accountInfo = await new AccountInfoQuery()
-      .setAccountId(accountId)
+      .setAccountId(treasuryId)
       .execute(client);
     const userPublicKey = accountInfo.key;
-
+    console.log("Max supply: ", maxSupply);
     // Create the token create transaction
     let tokenCreateTx = await new TokenCreateTransaction()
       .setTokenName(name)
@@ -112,7 +111,7 @@ export async function createHederaToken({
       .setTokenType(TokenType.FungibleCommon)
       .setDecimals(decimals)
       .setInitialSupply(initialSupply)
-      .setMaxSupply(totalSupply)
+      .setMaxSupply(maxSupply || 0)
       .setTreasuryAccountId(accountId)
       .setAdminKey(userPublicKey)
       .setSupplyKey(userPublicKey)
@@ -131,14 +130,30 @@ export async function createHederaToken({
     console.log("Token Create Transaction:", tokenCreateTx);
 
     // Sign the transaction with the signer
+
     const tokenCreateSign = await tokenCreateTx.signWithSigner(signer);
+    console.log("Token Create Signed:", tokenCreateSign);
     const tokenCreateSubmit = await tokenCreateSign.executeWithSigner(signer);
     console.log("Token Create submit: ", tokenCreateSubmit);
     // Get the transaction receipt
-    const tokenCreateRx = await tokenCreateSubmit.getReceipt(client);
+    const tokenCreateRx = await tokenCreateSubmit.getReceiptWithSigner(signer);
 
     // Get the token ID
     const tokenId = tokenCreateRx.tokenId;
+    // Mint remaining supply to treasury if needed
+    if (supplyType === "FINITE" && maxSupply) {
+      console.log(`Max Supply: ${maxSupply}, Initial Supply: ${initialSupply}`);
+      const remaining = maxSupply - initialSupply;
+      console.log("Remaining to mint:", remaining);
+      const mintTx = await new TokenMintTransaction()
+        .setTokenId(tokenId!)
+        .setAmount(remaining)
+        .freezeWith(client);
+      const mintSign = await mintTx.sign(treasuryKey);
+      const mintSubmit = await mintSign.execute(client);
+      const mintRx = await mintSubmit.getReceipt(client);
+      console.log(`Minted remaining supply: ${mintRx.status.toString()} ✅`);
+    }
 
     if (!tokenId) {
       throw new Error("Token creation failed: No token ID returned");
@@ -321,17 +336,18 @@ export async function checkTokenAssocationMirrorNode(
 export const buyAssetToken = async (
   tokenId: string,
   accountId: string,
-  amount: number
+  amount: number,
+  signer: DAppSigner
 ): Promise<{ status: string; receipt: any }> => {
   try {
-    const { client, treasuryId, treasuryKey } = await initializeHederaClient();
+    const { client, treasuryId } = await initializeHederaClient();
 
     // Create the transfer transaction
     const tokenTransferTx = await new TransferTransaction()
       .addTokenTransfer(tokenId, treasuryId, -amount) // Deduct from treasury
       .addTokenTransfer(tokenId, accountId, amount) // Add to buyer
       .freezeWith(client)
-      .sign(treasuryKey);
+      .signWithSigner(signer);
     console.log("Token Transfer Transaction:", tokenTransferTx);
     // Execute the transaction
     const tokenTransferSubmit = await tokenTransferTx.execute(client);

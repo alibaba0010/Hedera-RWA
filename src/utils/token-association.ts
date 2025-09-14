@@ -10,11 +10,12 @@ import {
   checkTokenAssocationMirrorNode,
   initializeHederaClient,
 } from "./hedera-integration";
+import { DAppSigner } from "@hashgraph/hedera-wallet-connect";
 
 interface WalletType {
   type: "hedera" | "evm" | null;
   accountId?: AccountId | string;
-  accountKey?: PrivateKey;
+  signer?: DAppSigner;
   provider?: any; // MetaMask provider
   evmAddress?: string; // MetaMask account address
   snapEnabled?: boolean; // Whether Hedera Wallet Snap is available
@@ -24,12 +25,6 @@ interface WalletType {
 export class TokenAssociationManager {
   constructor() {}
 
-  /**
-   * Check if an account is associated with a token
-   * @param wallet Wallet information (HashPack or MetaMask)
-   * @param tokenId Token to check association for
-   * @returns Promise<boolean>
-   */
   async isTokenAssociated(
     wallet: WalletType,
     tokenId: TokenId | string
@@ -79,8 +74,7 @@ export class TokenAssociationManager {
    */
   async associateToken(
     wallet: WalletType,
-    tokenId: TokenId | string,
-    accountKey: string | null
+    tokenId: TokenId | string
   ): Promise<string> {
     try {
       // Input validation
@@ -88,7 +82,7 @@ export class TokenAssociationManager {
         throw new Error("Wallet and tokenId are required");
       }
 
-      const { accountId, type, evmAddress } = wallet;
+      const { accountId, type, signer, evmAddress } = wallet;
       const { client } = await initializeHederaClient();
       console.log(`Evm address ${evmAddress} Account ID: ${accountId}`);
 
@@ -105,7 +99,7 @@ export class TokenAssociationManager {
           ? AccountId.fromString(accountId)
           : accountId;
       // Handle Hedera wallet (HashPack)
-      if (!accountId) {
+      if (!accountId || type !== "hedera" || !signer) {
         throw new Error("Hedera wallet requires accountId");
       }
 
@@ -115,7 +109,7 @@ export class TokenAssociationManager {
           .setAccountId(accountIdObj!)
           .setTokenIds([tokenIdObj])
           .freezeWith(client)
-          .sign(PrivateKey.fromStringECDSA(accountKey!));
+          .signWithSigner(signer);
 
         // Execute the signed transaction
         const response = await transaction.execute(client);

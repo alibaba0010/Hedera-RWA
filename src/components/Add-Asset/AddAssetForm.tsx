@@ -448,7 +448,6 @@ const AddAssetForm: FC = () => {
           symbol: form.tokenSymbol,
           decimals: Number(form.decimals),
           initialSupply: calculatedInitialSupply,
-          totalSupply: supplyValue,
           accountId,
           signer,
           supplyType: form.supplyType === "infinite" ? "INFINITE" : "FINITE",

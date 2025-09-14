@@ -54,7 +54,6 @@ const WalletProvider = ({ children }: { children: ReactNode }) => {
   // Hedera wallet connect (dynamic import)
   const connectWallet = async () => {
     try {
-      if (typeof window === "undefined") return;
       // const WalletConnectModule = await import("@/hooks/walletConnect");
       // await WalletConnectModule.hc.init();
       // console.log("WalletConnectModule: ", WalletConnectModule);
