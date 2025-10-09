@@ -508,7 +508,7 @@ const AddAssetForm: FC = () => {
         await saveMetadataCIDToDatabase(data);
         await publishToRegistry(tokenId, metadataCID);
 
-        const hcsTopicId = getEnv("VITE_PUBLIC_HEDERA_ASSET_TOPIC");
+        const hcsTopicId = getEnv("VITE_PUBLIC_HEDERA_ASSET_TOPIC_ID");
         await sendHcsMessage(hcsTopicId, {
           type: "ASSET_CREATED",
           tokenId,

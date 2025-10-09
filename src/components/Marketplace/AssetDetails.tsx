@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useMemo } from "react";
 import { useParams } from "react-router-dom";
-import { fetchAssetMetadataFromIPFS } from "@/utils/hedera-integration";
+import {  fetchAssetMetadataFromIPFS } from "@/utils/hedera-integration";
 import { getTokenIdByMetadataCID } from "@/utils/supabase";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -17,6 +17,7 @@ import {
   X,
 } from "lucide-react";
 import type { AssetMetadata } from "@/utils/assets";
+
 
 const AssetDetails = () => {
   const { metadataCID } = useParams();

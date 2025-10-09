@@ -28,11 +28,12 @@ export async function initializeHederaClient(): Promise<{
       getEnv("VITE_PUBLIC_TREASURY_ACCOUNT_ID")
     );
     const treasuryKey = PrivateKey.fromStringED25519(
-      getEnv("VITE_PUBLIC_ENCODED_PRIVATE_KEY")
+      getEnv("VITE_PUBLIC_TREASURY_DER_PRIVATE_KEY")
     );
+    console.log("Treasury: ", treasuryId, treasuryKey);
     if (!treasuryId || !treasuryKey) {
       throw new Error(
-        "Missing Hedera environment variables: VITE_PUBLIC_TREASURY_ACCOUNT_ID or VITE_PUBLIC_ENCODED_PRIVATE_KEY"
+        "Missing Hedera environment variables: VITE_PUBLIC_TREASURY_ACCOUNT_ID or VITE_PUBLIC_TREASURY_HEX_PRIVATE_KEY"
       );
     }
     const client = Client.forTestnet().setOperator(treasuryId, treasuryKey);
@@ -91,7 +92,8 @@ export async function createHederaToken({
   symbol: string;
   decimals: number;
   initialSupply: number;
-  supplyType: "INFINITE" | "FINITE";
+  // supplyType: "INFINITE" | "FINITE";
+  supplyType: string;
   maxSupply?: number | null;
   accountId: string;
   signer: DAppSigner;
@@ -104,55 +106,51 @@ export async function createHederaToken({
       .execute(client);
     const userPublicKey = accountInfo.key;
     console.log("Max supply: ", maxSupply);
+    // Determine max supply based on supply type
+    const tokenMaxSupply = supplyType === "FINITE" ? maxSupply : 10_000_000;
+if(!tokenMaxSupply) return "Supply should be greater than 0"; 
     // Create the token create transaction
     let tokenCreateTx = await new TokenCreateTransaction()
       .setTokenName(name)
       .setTokenSymbol(symbol)
       .setTokenType(TokenType.FungibleCommon)
       .setDecimals(decimals)
-      .setInitialSupply(initialSupply)
-      .setMaxSupply(maxSupply || 0)
-      .setTreasuryAccountId(accountId)
+      .setInitialSupply(tokenMaxSupply)
+      .setMaxSupply(tokenMaxSupply)
+      .setTreasuryAccountId(treasuryId)
       .setAdminKey(userPublicKey)
       .setSupplyKey(userPublicKey)
-      .setSupplyType(
-        supplyType === "INFINITE"
-          ? TokenSupplyType.Infinite
-          : TokenSupplyType.Finite
-      )
+      .setSupplyType(supplyType === "INFINITE" ? TokenSupplyType.Infinite : TokenSupplyType.Finite)
       .setMaxTransactionFee(new Hbar(20))
       .freezeWithSigner(signer);
 
-    // If supply type is finite, set the max supply
-    if (supplyType === "FINITE" && maxSupply) {
-      tokenCreateTx.setMaxSupply(maxSupply);
-    }
     console.log("Token Create Transaction:", tokenCreateTx);
 
-    // Sign the transaction with the signer
-
-    const tokenCreateSign = await tokenCreateTx.signWithSigner(signer);
+    // Sign the transaction with the treasury key
+    const tokenCreateSign = await tokenCreateTx.sign(treasuryKey);
     console.log("Token Create Signed:", tokenCreateSign);
+    
+    // Execute the transaction
     const tokenCreateSubmit = await tokenCreateSign.executeWithSigner(signer);
     console.log("Token Create submit: ", tokenCreateSubmit);
+    
     // Get the transaction receipt
-    const tokenCreateRx = await tokenCreateSubmit.getReceiptWithSigner(signer);
+    const tokenCreateRx = await tokenCreateSubmit.getReceipt(client);
 
     // Get the token ID
     const tokenId = tokenCreateRx.tokenId;
-    // Mint remaining supply to treasury if needed
-    if (supplyType === "FINITE" && maxSupply) {
-      console.log(`Max Supply: ${maxSupply}, Initial Supply: ${initialSupply}`);
-      const remaining = maxSupply - initialSupply;
-      console.log("Remaining to mint:", remaining);
-      const mintTx = await new TokenMintTransaction()
-        .setTokenId(tokenId!)
-        .setAmount(remaining)
+
+    // Transfer initial supply to the specified account if it's different from treasury
+    if (accountId !== treasuryId.toString() && initialSupply > 0) {
+      const transferTx = await new TransferTransaction()
+        .addTokenTransfer(tokenId!, treasuryId, -initialSupply)
+        .addTokenTransfer(tokenId!, AccountId.fromString(accountId), initialSupply)
         .freezeWith(client);
-      const mintSign = await mintTx.sign(treasuryKey);
-      const mintSubmit = await mintSign.execute(client);
-      const mintRx = await mintSubmit.getReceipt(client);
-      console.log(`Minted remaining supply: ${mintRx.status.toString()} ✅`);
+
+      const transferSign = await transferTx.sign(treasuryKey);
+      const transferSubmit = await transferSign.execute(client);
+      await transferSubmit.getReceipt(client);
+      console.log(`✅ Transferred initial supply to ${accountId}`);
     }
 
     if (!tokenId) {
@@ -231,7 +229,7 @@ export async function sendHcsMessage(
 export async function publishToRegistry(tokenId: string, metadataCID: string) {
   // Load credentials from env
   const { client } = await initializeHederaClient();
-  const topicId = TopicId.fromString(getEnv("VITE_PUBLIC_HEDERA_ASSET_TOPIC"));
+  const topicId = TopicId.fromString(getEnv("VITE_PUBLIC_HEDERA_ASSET_TOPIC_ID"));
 
   // Prepare message
   const message = JSON.stringify({

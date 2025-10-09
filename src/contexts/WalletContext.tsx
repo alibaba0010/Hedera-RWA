@@ -4,7 +4,6 @@ import { useAccount, useConnect, useDisconnect } from "wagmi";
 import { walletConnectFcn } from "@/hooks/walletConnect";
 import { DAppSigner } from "@hashgraph/hedera-wallet-connect";
 import {
-  getUserTokenHbarUsdcBalance,
   getUserProfile,
 } from "@/utils/mirror-node-client";
 import { getBalanceFromMirrorNode } from "@/hooks/accountBalance";
@@ -46,7 +45,6 @@ const WalletProvider = ({ children }: { children: ReactNode }) => {
   const [balance, setBalance] = useState<string | null>(null);
   const [walletType, setWalletType] = useState<"hedera" | "evm" | null>(null);
   const [signer, setSigner] = useState<DAppSigner>();
-  console.log("WalletData: ", walletData);
   // RainbowKit (wagmi) hooks for EVM
   const { isConnected: isEvmConnected } = useAccount();
   const { connectAsync, connectors } = useConnect();
