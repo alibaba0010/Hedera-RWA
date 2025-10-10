@@ -39,17 +39,15 @@ import FileUploader from "./FileUploader";
 import { SectionHeader, StepIndicator } from "./FromContent";
 import LocationSelector from "./LocationSelector";
 import AssetValueSupply from "./AssetValueSupply";
-import {
-  uploadFileToIPFS,
-  uploadJSONToIPFS,
+import { 
   createHederaToken,
   sendHcsMessage,
   publishToRegistry,
   hashFile,
 } from "@/utils/hedera-integration";
 import { WalletContext } from "@/contexts/WalletContext";
-import { getEnv } from "@/utils";
 import { saveMetadataCIDToDatabase } from "@/utils/supabase";
+import { uploadFileToIPFS, uploadJSONToIPFS } from "@/utils";
 
 const useDebounce = (value: string, delay: number) => {
   const [debouncedValue, setDebouncedValue] = useState(value);
@@ -508,8 +506,7 @@ const AddAssetForm: FC = () => {
         await saveMetadataCIDToDatabase(data);
         await publishToRegistry(tokenId, metadataCID);
 
-        const hcsTopicId = getEnv("VITE_PUBLIC_HEDERA_ASSET_TOPIC_ID");
-        await sendHcsMessage(hcsTopicId, {
+        await sendHcsMessage( {
           type: "ASSET_CREATED",
           tokenId,
           metadataCID,
@@ -517,7 +514,7 @@ const AddAssetForm: FC = () => {
           timestamp: new Date().toISOString(),
         });
 
-        setCompletedSubmissionSteps((prev) => [...prev, 4]); // Mark document hash anchoring step complete
+        setCompletedSubmissionSteps((prev) => [...prev, 4]); 
         setCurrentSubmissionStep(-1);
         setShowStepComplete(false);
 

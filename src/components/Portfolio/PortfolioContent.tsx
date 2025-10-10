@@ -78,7 +78,7 @@ export function PortfolioContent() {
         {!accountId ? (
           ""
         ) : (
-          <Button onClick={() => navigate("/add-asset")} variant="default">
+          <Button onClick={() => navigate("/add-asset")} variant="default" className="pointer">
             + Add Asset
           </Button>
         )}

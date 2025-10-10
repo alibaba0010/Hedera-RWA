@@ -1,7 +1,6 @@
 import {
   Client,
   TopicMessageSubmitTransaction,
-  TopicId,
   PrivateKey,
   AccountId,
   TopicCreateTransaction,
@@ -10,10 +9,10 @@ import {
   TokenSupplyType,
   AccountInfoQuery,
   TransferTransaction,
+  // TopicMessageQuery
   Hbar,
-  TokenMintTransaction,
 } from "@hashgraph/sdk";
-import { getEnv } from "@/utils";
+import { getEnv, topicId } from "@/utils";
 import { DAppSigner } from "@hashgraph/hedera-wallet-connect";
 
 // Utility functions for Hedera, IPFS, and Mirror Node integration
@@ -44,39 +43,7 @@ export async function initializeHederaClient(): Promise<{
     throw new Error(`Hedera client initialization failed: ${error.message}`);
   }
 }
-// --- IPFS ---
-export async function uploadFileToIPFS(file: File): Promise<string> {
-  // TODO: Integrate with IPFS pinning service (e.g., Pinata, web3.storage)
-  const url = "https://api.pinata.cloud/pinning/pinFileToIPFS";
-  const formData = new FormData();
-  formData.append("file", file);
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${getEnv("VITE_PUBLIC_PINATA_JWT")}`,
-    },
-    body: formData,
-  });
-  if (!res.ok) throw new Error("Failed to upload file to IPFS");
-  const data = await res.json();
-  // Return the IPFS hash (CID)
-  return data.IpfsHash;
-}
-// Helper: Upload metadata (JSON) to IPFS via Pinata
-export async function uploadJSONToIPFS(json: any): Promise<string> {
-  const url = "https://api.pinata.cloud/pinning/pinJSONToIPFS";
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${getEnv("VITE_PUBLIC_PINATA_JWT")}`,
-    },
-    body: JSON.stringify(json),
-  });
-  if (!res.ok) throw new Error("Failed to upload metadata to IPFS");
-  const data = await res.json();
-  return data.IpfsHash;
-}
+
 // --- Hedera Token Service (HTS) ---
 export async function createHederaToken({
   name,
@@ -174,7 +141,6 @@ export async function hashFile(file: File): Promise<string> {
 }
 // --- Hedera Consensus Service (HCS) ---
 export async function sendHcsMessage(
-  topicId: string,
   message: any
 ): Promise<{
   messageContent: string;
@@ -189,7 +155,7 @@ export async function sendHcsMessage(
 
     // Create and execute the message submission transaction
     const submitTx = new TopicMessageSubmitTransaction()
-      .setTopicId(TopicId.fromString(topicId))
+      .setTopicId(topicId)
       .setMessage(messageString);
 
     // Submit the transaction
@@ -229,7 +195,6 @@ export async function sendHcsMessage(
 export async function publishToRegistry(tokenId: string, metadataCID: string) {
   // Load credentials from env
   const { client } = await initializeHederaClient();
-  const topicId = TopicId.fromString(getEnv("VITE_PUBLIC_HEDERA_ASSET_TOPIC_ID"));
 
   // Prepare message
   const message = JSON.stringify({

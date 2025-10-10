@@ -1,3 +1,4 @@
+import { TopicId } from "@hashgraph/sdk";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 
@@ -19,7 +20,39 @@ export async function getHbarUsdPrice(): Promise<number> {
     throw new Error("Could not fetch HBAR price");
   return data["hedera-hashgraph"].usd;
 }
-
+// --- IPFS ---
+export async function uploadFileToIPFS(file: File): Promise<string> {
+  // TODO: Integrate with IPFS pinning service (e.g., Pinata, web3.storage)
+  const url = "https://api.pinata.cloud/pinning/pinFileToIPFS";
+  const formData = new FormData();
+  formData.append("file", file);
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${getEnv("VITE_PUBLIC_PINATA_JWT")}`,
+    },
+    body: formData,
+  });
+  if (!res.ok) throw new Error("Failed to upload file to IPFS");
+  const data = await res.json();
+  // Return the IPFS hash (CID)
+  return data.IpfsHash;
+}
+// Helper: Upload metadata (JSON) to IPFS via Pinata
+export async function uploadJSONToIPFS(json: any): Promise<string> {
+  const url = "https://api.pinata.cloud/pinning/pinJSONToIPFS";
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${getEnv("VITE_PUBLIC_PINATA_JWT")}`,
+    },
+    body: JSON.stringify(json),
+  });
+  if (!res.ok) throw new Error("Failed to upload metadata to IPFS");
+  const data = await res.json();
+  return data.IpfsHash;
+}
 export function usdToHbar(usd: number, rate: number): number {
   return usd / rate;
 }
@@ -45,3 +78,4 @@ export function getEnv(key: string): string {
   }
   throw new Error(`Environment variable ${key} is not defined`);
 }
+ export const topicId = TopicId.fromString(getEnv("VITE_PUBLIC_HEDERA_ASSET_TOPIC_ID"));
