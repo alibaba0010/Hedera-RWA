@@ -75,7 +75,7 @@ export async function createHederaToken({
     console.log("Max supply: ", maxSupply);
     // Determine max supply based on supply type
     const tokenMaxSupply = supplyType === "FINITE" ? maxSupply : 10_000_000;
-if(!tokenMaxSupply) return "Supply should be greater than 0"; 
+    if (!tokenMaxSupply) return "Supply should be greater than 0";
     // Create the token create transaction
     let tokenCreateTx = await new TokenCreateTransaction()
       .setTokenName(name)
@@ -87,7 +87,11 @@ if(!tokenMaxSupply) return "Supply should be greater than 0";
       .setTreasuryAccountId(treasuryId)
       .setAdminKey(userPublicKey)
       .setSupplyKey(userPublicKey)
-      .setSupplyType(supplyType === "INFINITE" ? TokenSupplyType.Infinite : TokenSupplyType.Finite)
+      .setSupplyType(
+        supplyType === "INFINITE"
+          ? TokenSupplyType.Infinite
+          : TokenSupplyType.Finite
+      )
       .setMaxTransactionFee(new Hbar(20))
       .freezeWithSigner(signer);
 
@@ -96,11 +100,11 @@ if(!tokenMaxSupply) return "Supply should be greater than 0";
     // Sign the transaction with the treasury key
     const tokenCreateSign = await tokenCreateTx.sign(treasuryKey);
     console.log("Token Create Signed:", tokenCreateSign);
-    
+
     // Execute the transaction
     const tokenCreateSubmit = await tokenCreateSign.executeWithSigner(signer);
     console.log("Token Create submit: ", tokenCreateSubmit);
-    
+
     // Get the transaction receipt
     const tokenCreateRx = await tokenCreateSubmit.getReceipt(client);
 
@@ -111,7 +115,11 @@ if(!tokenMaxSupply) return "Supply should be greater than 0";
     if (accountId !== treasuryId.toString() && initialSupply > 0) {
       const transferTx = await new TransferTransaction()
         .addTokenTransfer(tokenId!, treasuryId, -initialSupply)
-        .addTokenTransfer(tokenId!, AccountId.fromString(accountId), initialSupply)
+        .addTokenTransfer(
+          tokenId!,
+          AccountId.fromString(accountId),
+          initialSupply
+        )
         .freezeWith(client);
 
       const transferSign = await transferTx.sign(treasuryKey);
@@ -140,9 +148,7 @@ export async function hashFile(file: File): Promise<string> {
     .join("");
 }
 // --- Hedera Consensus Service (HCS) ---
-export async function sendHcsMessage(
-  message: any
-): Promise<{
+export async function sendHcsMessage(message: any): Promise<{
   messageContent: string;
   transactionStatus: string;
   mirrorResponse?: any;
@@ -296,17 +302,51 @@ export async function checkTokenAssocationMirrorNode(
     throw new Error(`Failed to check token association: ${error.message}`);
   }
 }
+interface TradingOptions {
+  tradingPair: "HBAR" | "USDC";
+  value: number;
+  pricePerToken: number;
+}
+
 export const buyAssetToken = async (
   tokenId: string,
   accountId: string,
   amount: number,
-  signer: DAppSigner
+  signer: DAppSigner,
+  options: TradingOptions
 ): Promise<{ status: string; receipt: any }> => {
   try {
-    const { client, treasuryId } = await initializeHederaClient();
+    const { client, treasuryId, treasuryKey } = await initializeHederaClient();
+    console.log("Options: ", options);
+    // Handle payment based on trading pair
+    if (options.tradingPair === "HBAR") {
+      const hbarAmount = new Hbar(options.value);
+      const deductHbarTx = await new TransferTransaction()
+        .addHbarTransfer(accountId, hbarAmount.negated()) // Deduct HBAR from buyer
+        .addHbarTransfer(treasuryId, hbarAmount) // Add HBAR to treasury
+        .freezeWith(client)
+        .sign(treasuryKey);
+      console.log("Deduct HBAR Transaction:", deductHbarTx);
+      const deductHbarSubmit = await deductHbarTx.executeWithSigner(signer);
+      console.log("Deduct HBAR Submit:", deductHbarSubmit);
+      const deductHbarRx = await deductHbarSubmit.getReceipt(client);
+      console.log("Deduct HBAR Receipt:", deductHbarRx);
 
+      if (deductHbarRx.status.toString() !== "SUCCESS") {
+        throw new Error(
+          `HBAR payment failed with status: ${deductHbarRx.status}`
+        );
+      }
+      console.log(`HBAR payment successful: ${deductHbarRx.status} ✅`);
+    } else {
+      // For USDC trading pair
+      // TODO: Implement USDC token transfer once the USDC token ID is available
+      // This would involve a similar token transfer transaction but with the USDC token
+      console.log("USDC payment to be implemented");
+    }
     // Create the transfer transaction
     const tokenTransferTx = await new TransferTransaction()
+
       .addTokenTransfer(tokenId, treasuryId, -amount) // Deduct from treasury
       .addTokenTransfer(tokenId, accountId, amount) // Add to buyer
       .freezeWith(client)
@@ -336,9 +376,10 @@ export const buyAssetToken = async (
 export const sellAssetToken = async (
   tokenId: string,
   accountId: string,
-  accountKey: PrivateKey,
-  amount: number
-): Promise<any> => {
+  amount: number,
+  signer: DAppSigner,
+  options: TradingOptions
+): Promise<{ status: string; receipt: any }> => {
   try {
     const { client, treasuryId } = await initializeHederaClient();
 
@@ -347,11 +388,63 @@ export const sellAssetToken = async (
       .addTokenTransfer(tokenId, accountId, -amount) // Deduct from seller
       .addTokenTransfer(tokenId, treasuryId, amount) // Add to treasury
       .freezeWith(client)
-      .sign(accountKey); // Sign with seller's key
+      .signWithSigner(signer); // Sign with seller's key
     console.log("Token Transfer Transaction:", tokenTransferTx);
     // Execute the transaction
     const tokenTransferSubmit = await tokenTransferTx.execute(client);
     const tokenTransferRx = await tokenTransferSubmit.getReceipt(client);
-    console.log();
-  } catch (e) {}
+    console.log("Token Transfer Receipt:", tokenTransferRx);
+
+    if (tokenTransferRx.status.toString() !== "SUCCESS") {
+      throw new Error(
+        `Transaction failed with status: ${tokenTransferRx.status}`
+      );
+    }
+
+    console.log(`Token transfer successful: ${tokenTransferRx.status} ✅`);
+    // Optionally, transfer HBAR from treasury to seller as payment
+    const deductHbarFromTreasuryTx = await new TransferTransaction()
+      .addHbarTransfer(treasuryId, new Hbar(-0.1)) // Deduct 0.1 HBAR from treasury
+      .addHbarTransfer(accountId, new Hbar(0.1)) // Add 0.1 HBAR to seller
+      .freezeWith(client)
+      .signWithSigner(signer);
+    const deductHbarFromTreasurySubmit = await deductHbarFromTreasuryTx.execute(
+      client
+    );
+    const deductHbarFromTreasuryRx =
+      await deductHbarFromTreasurySubmit.getReceipt(client);
+    if (deductHbarFromTreasuryRx.status.toString() !== "SUCCESS") {
+      throw new Error(
+        `HBAR transfer to seller failed with status: ${deductHbarFromTreasuryRx.status}`
+      );
+    }
+    console.log(
+      `HBAR transfer to seller successful: ${deductHbarFromTreasuryRx.status} ✅`
+    );
+    return {
+      status: tokenTransferRx.status.toString(),
+      receipt: tokenTransferRx,
+    };
+  } catch (error: any) {
+    console.error("Error in sellAssetToken:", error);
+    throw new Error(`Failed to sell asset token: ${error.message}`);
+  }
+};
+
+// TODO: Get the available tokens available on treasury account
+export const getTokenBalanceByTokenId = async (tokenId: string) => {
+  // get hbar balance from treasury account
+
+  const { client, treasuryId } = await initializeHederaClient();
+
+  const accountInfo = await new AccountInfoQuery()
+    .setAccountId(treasuryId)
+    .execute(client);
+  const hbarBalance = accountInfo.balance.toString();
+  console.log("Hbar Balance: ", hbarBalance);
+  const tokenBalance = accountInfo.tokenRelationships.get(tokenId);
+  if (!tokenBalance) {
+    throw new Error(`No token relationship found for token ID: ${tokenId}`);
+  }
+  return tokenBalance.balance;
 };

@@ -17,6 +17,7 @@ import {
   X,
 } from "lucide-react";
 import type { AssetMetadata } from "@/utils/assets";
+import { subscribeToPriceUpdates, unsubscribeFromPriceUpdates } from "@/utils/trading";
 
 
 const AssetDetails = () => {
@@ -26,6 +27,7 @@ const AssetDetails = () => {
   const [error, setError] = useState<string | null>(null);
   const [viewerOpen, setViewerOpen] = useState(false);
   const [currentAssetIndex, setCurrentAssetIndex] = useState(0);
+  const [currentPrice, setCurrentPrice] = useState<number | null>(null);
 
   const assetFiles = useMemo(() => {
     if (!assetData) return [];
@@ -106,6 +108,24 @@ const AssetDetails = () => {
 
     fetchData();
   }, [metadataCID]);
+
+  useEffect(() => {
+    if (tokenId && assetData) {
+      // Subscribe to price updates
+      subscribeToPriceUpdates(
+        tokenId,
+        (price) => setCurrentPrice(price),
+        assetData.tokenomics.pricePerTokenUSD
+      );
+
+      // Cleanup subscription
+      return () => {
+        if (tokenId) {
+          unsubscribeFromPriceUpdates(tokenId, setCurrentPrice);
+        }
+      };
+    }
+  }, [tokenId, assetData]);
 
   if (loading) {
     return <LoadingSkeleton />;
@@ -206,7 +226,7 @@ const AssetDetails = () => {
               <div>
                 <h3 className="font-semibold">Price per Token</h3>
                 <p className="text-lg">
-                  ${assetData.tokenomics.pricePerTokenUSD}
+                  ${(currentPrice || assetData.tokenomics.pricePerTokenUSD).toFixed(4)}
                 </p>
               </div>
               <div>
@@ -216,45 +236,47 @@ const AssetDetails = () => {
             </div>
 
             {/* Additional Files */}
-            <div className="space-y-2">
-              <h2 className="text-xl font-semibold">Documents</h2>
+            {(assetData.files.legalDocs || assetData.files.valuationReport) && (
               <div className="space-y-2">
-                {assetData.files.legalDocs && (
-                  <button
-                    onClick={() => {
-                      const index = assetFiles.findIndex(
-                        (file) => file.title === "Legal Documents"
-                      );
-                      if (index !== -1) {
-                        setCurrentAssetIndex(index);
-                        setViewerOpen(true);
-                      }
-                    }}
-                    className="flex items-center space-x-2 text-blue-600 hover:text-blue-800 transition-colors"
-                  >
-                    <FileIcon className="w-5 h-5" />
-                    <span>Legal Documents</span>
-                  </button>
-                )}
-                {assetData.files.valuationReport && (
-                  <button
-                    onClick={() => {
-                      const index = assetFiles.findIndex(
-                        (file) => file.title === "Valuation Report"
-                      );
-                      if (index !== -1) {
-                        setCurrentAssetIndex(index);
-                        setViewerOpen(true);
-                      }
-                    }}
-                    className="flex items-center space-x-2 text-blue-600 hover:text-blue-800 transition-colors"
-                  >
-                    <FileIcon className="w-5 h-5" />
-                    <span>Valuation Report</span>
-                  </button>
-                )}
+                <h2 className="text-xl font-semibold">Documents</h2>
+                <div className="space-y-2">
+                  {assetData.files.legalDocs && (
+                    <button
+                      onClick={() => {
+                        const index = assetFiles.findIndex(
+                          (file) => file.title === "Legal Documents"
+                        );
+                        if (index !== -1) {
+                          setCurrentAssetIndex(index);
+                          setViewerOpen(true);
+                        }
+                      }}
+                      className="flex items-center space-x-2 text-blue-600 hover:text-blue-800 transition-colors"
+                    >
+                      <FileIcon className="w-5 h-5" />
+                      <span>Legal Documents</span>
+                    </button>
+                  )}
+                  {assetData.files.valuationReport && (
+                    <button
+                      onClick={() => {
+                        const index = assetFiles.findIndex(
+                          (file) => file.title === "Valuation Report"
+                        );
+                        if (index !== -1) {
+                          setCurrentAssetIndex(index);
+                          setViewerOpen(true);
+                        }
+                      }}
+                      className="flex items-center space-x-2 text-blue-600 hover:text-blue-800 transition-colors"
+                    >
+                      <FileIcon className="w-5 h-5" />
+                      <span>Valuation Report</span>
+                    </button>
+                  )}
+                </div>
               </div>
-            </div>
+            )}
 
             {/* Additional Information */}
             {(assetData.additionalInfo.insuranceDetails ||

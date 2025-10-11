@@ -12,6 +12,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import App from "../App";
 import WalletProvider from "./WalletContext";
 import { ThemeProvider } from "./theme-context";
+import { NotificationProvider } from "./notification-context";
+
 
 export function Providers() {
   const [config] = useState(() => getConfig());
@@ -29,7 +31,9 @@ export function Providers() {
                 initialChain={chains[0]}
               >
                 <WalletProvider>
-                  <App />
+                  <NotificationProvider>
+                    <App />
+                  </NotificationProvider>
                 </WalletProvider>
               </RainbowKitProvider>
             </QueryClientProvider>

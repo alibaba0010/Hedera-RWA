@@ -1,12 +1,11 @@
 "use client";
 
-import { useState, useEffect, useContext } from "react";
+import { useState, useEffect, useContext, useCallback } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { toast } from "@/components/ui/use-toast";
 import { TokenAssociationManager } from "@/utils/token-association";
 import { TokenId } from "@hashgraph/sdk";
 import {
@@ -19,10 +18,19 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
+import { 
+  subscribeToPriceUpdates, 
+  unsubscribeFromPriceUpdates, 
+  getTokenChartData,
+  generateOrderBook,
+  updateTokenPrice 
+} from "@/utils/trading";
 import { WalletContext } from "@/contexts/WalletContext";
 import { TradingPanelProps } from "@/utils/assets";
-import { generateCandlestickData, generateOrderBook } from "@/utils/trading";
-import { buyAssetToken } from "@/utils/hedera-integration";
+import { buyAssetToken, getTokenBalanceByTokenId } from "@/utils/hedera-integration";
+import { saveOrder, saveTrade, supabase } from "@/utils/supabase";
+import { useNotification } from "@/contexts/notification-context";
+
 
 export const TradingPanel = ({
   tokenomics,
@@ -37,28 +45,48 @@ export const TradingPanel = ({
   );
   const [chartData, setChartData] = useState<any[]>([]);
   const [orderBook, setOrderBook] = useState<any>({ asks: [], bids: [] });
+  const [currentPrice, setCurrentPrice] = useState<number>(tokenomics.pricePerTokenUSD);
 
   const [isLoading, setIsLoading] = useState(false);
   const [isCheckingAssociation, setIsCheckingAssociation] = useState(false);
   const [orderType, setOrderType] = useState<"market" | "limit">("market");
+  const { showNotification } = useNotification();
   const [tradingPair, setTradingPair] = useState<"USDC" | "HBAR">("HBAR");
 
-  useEffect(() => {
-    // For demo purposes, simulate different prices for HBAR and USDC
-    const basePrice = tokenomics.pricePerTokenUSD;
-    const price = tradingPair === "HBAR" ? basePrice * 5 : basePrice; // Simulated HBAR price
-    const data = generateCandlestickData(price);
-    const orders = generateOrderBook(price);
-    setChartData(data);
+  const handlePriceUpdate = useCallback((newPrice: number) => {
+    setCurrentPrice(newPrice);
+    getTokenChartData(tokenId, tokenomics.pricePerTokenUSD).then(setChartData);
+    const orders = generateOrderBook(newPrice);
     setOrderBook(orders);
-  }, [tokenomics.pricePerTokenUSD]);
+  }, [tokenId, tokenomics.pricePerTokenUSD]);
+useEffect(() => {
+  const getTokenBalance = async () => {
+  const tokenBalance = await getTokenBalanceByTokenId(tokenId)
+  console.log("Token Balance: ", tokenBalance);
+  }
+  getTokenBalance();
+},[tokenId])
+  useEffect(() => {
+    // Initialize with current data
+    getTokenChartData(tokenId, tokenomics.pricePerTokenUSD).then(setChartData);
+    const orders = generateOrderBook(currentPrice);
+    setOrderBook(orders);
+
+    // Subscribe to price updates
+    subscribeToPriceUpdates(tokenId, handlePriceUpdate, tokenomics.pricePerTokenUSD);
+
+    // Cleanup subscription on unmount
+    return () => {
+      unsubscribeFromPriceUpdates(tokenId, handlePriceUpdate);
+    };
+  }, [tokenId, handlePriceUpdate, tokenomics.pricePerTokenUSD, currentPrice]);
 
   const checkTokenAssociation = async () => {
     if (!accountId || !tokenId) {
-      toast({
+      showNotification({
         title: "Error",
-        description: "Please connect your wallet first",
-        variant: "destructive",
+        message: "Please connect your wallet first",
+        variant: "error",
       });
       return false;
     }
@@ -90,17 +118,17 @@ export const TradingPanel = ({
           },
           TokenId.fromString(tokenId)
         );
-        toast({
+        showNotification({
           title: "Success",
-          description: `Successfully associated with ${tokenSymbol} token`,
+          message: `Successfully associated with ${tokenSymbol} token`,
         });
       }
       return isAssociated;
     } catch (error: any) {
-      toast({
+      showNotification({
         title: "Error",
-        description: error.message || "Failed to check token association",
-        variant: "destructive",
+        message: error.message || "Failed to check token association",
+        variant: "error",
       });
       return false;
     } finally {
@@ -110,16 +138,20 @@ export const TradingPanel = ({
 
   const handleBuy = async () => {
     if (!amount || Number(amount) <= 0 || !accountId) {
-      toast({
+      showNotification({
         title: "Error",
-        description: "Please enter a valid amount and connect your wallet",
-        variant: "destructive",
+        message: "Please enter a valid amount and connect your wallet",
+        variant: "error",
       });
       return;
     }
 
     try {
       setIsLoading(true);
+
+      // Convert amount to actual tokens (multiply by 100)
+      const actualAmount = Number(amount) * 100;
+      console.log("Original amount:", amount, "Actual token amount:", actualAmount);
 
       // Check token association first
       const isAssociated = await checkTokenAssociation();
@@ -130,29 +162,81 @@ export const TradingPanel = ({
       if (!isAssociated || !signer) {
         return;
       }
-      console.log("Amount:", amount);
+
+      // Calculate the total value in the selected trading pair
+      const totalInTradingPair = tradingPair === "HBAR" 
+        ? totalValue * 5 // Simulated HBAR conversion
+        : totalValue;
+
+      // Save the order first
+      console.log(" order Data: ", tokenId, actualAmount, currentPrice, accountId);
+      const order = await saveOrder({
+        token_id: tokenId,
+        amount: actualAmount,
+        price: currentPrice,
+        order_type: 'buy', 
+        status: 'pending',
+        buyer_id: accountId
+      });
+
+      console.log("Order saved:", order);
+
       // Execute the buy order using buyAssetToken
       const { status } = await buyAssetToken(
         tokenId,
         accountId,
-        Number(amount),
-        signer
+        actualAmount,
+        signer,
+        {
+          tradingPair,
+          value: totalInTradingPair,
+          pricePerToken: tradingPair === "HBAR" 
+            ? tokenomics.pricePerTokenUSD * 5 
+            : tokenomics.pricePerTokenUSD
+        }
       );
+      
       console.log("Buy order status:", status);
       if (status === "SUCCESS") {
-        toast({
+        // Update order status to completed
+        alert("Purchase successful!");
+        await supabase
+          .from('orders')
+          .update({ status: 'completed' })
+          .eq('id', order.id);
+
+        // Save to trade history
+        await saveTrade({
+          token_id: tokenId,
+          price: currentPrice,
+          volume: actualAmount,
+          trade_type: 'buy',
+          trader_id: accountId
+        });
+
+        // Update token price
+        const newPrice = await updateTokenPrice(tokenId, currentPrice, actualAmount, 'buy');
+        console.log('New token price:', newPrice);
+
+        showNotification({
           title: "Success",
-          description: `Successfully purchased ${amount} ${tokenSymbol} tokens`,
+          message: `Successfully purchased ${amount} ${tokenSymbol} tokens for ${tradingPair === "HBAR" ? "ℏ" : "$"}${totalInTradingPair.toFixed(4)}`,
         });
       } else {
+        // Update order status to failed
+        await supabase
+          .from('orders')
+          .update({ status: 'failed' })
+          .eq('id', order.id);
+
         throw new Error(`Transaction failed with status: ${status}`);
       }
     } catch (error: any) {
       console.error("Buy order error:", error);
-      toast({
+      showNotification({
         title: "Error",
-        description: error.message || "Failed to place buy order",
-        variant: "destructive",
+        message: error.message || "Failed to place buy order",
+        variant: "error",
       });
     } finally {
       setIsLoading(false);
@@ -160,29 +244,88 @@ export const TradingPanel = ({
   };
 
   const handleSell = async () => {
-    if (!amount || Number(amount) <= 0) return;
+    if (!amount || Number(amount) <= 0 || !accountId) {
+      showNotification({
+        title: "Error",
+        message: "Please enter a valid amount and connect your wallet",
+        variant: "error",
+      });
+      return;
+    }
 
     try {
       setIsLoading(true);
 
+      // Convert amount to actual tokens (multiply by 100)
+      const actualAmount = Number(amount) * 100;
+      console.log("Original amount:", amount, "Actual token amount:", actualAmount);
+
       // Check token association first
       const isAssociated = await checkTokenAssociation();
-      if (!isAssociated) {
+      if (!isAssociated || !signer) {
         return;
       }
 
-      // Proceed with sell order
-      // Your sell order implementation here
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      toast({
-        title: "Success",
-        description: `Sell order placed for ${amount} ${tokenSymbol} tokens`,
+      // Calculate the total value in the selected trading pair
+      const totalInTradingPair = tradingPair === "HBAR" 
+        ? totalValue * 5 // Simulated HBAR conversion
+        : totalValue;
+
+      // Save the order first
+      const order = await saveOrder({
+        token_id: tokenId,
+        amount: actualAmount,
+        price: currentPrice,
+        order_type: 'sell',
+        status: 'pending',
+        buyer_id: accountId
       });
+
+      console.log("Order saved:", order);
+
+      // Proceed with sell order
+      // TODO: Implement sellAssetToken function in hedera-integration.ts
+      const status = "SUCCESS"; // Temporary until sellAssetToken is implemented
+      
+      if (status === "SUCCESS") {
+        // Update order status to completed
+        await supabase
+          .from('orders')
+          .update({ status: 'completed' })
+          .eq('id', order.id);
+
+        // Save to trade history
+        await saveTrade({
+          token_id: tokenId,
+          price: currentPrice,
+          volume: actualAmount,
+          trade_type: 'sell',
+          trader_id: accountId
+        });
+
+        // Update token price
+        const newPrice = await updateTokenPrice(tokenId, currentPrice, actualAmount, 'sell');
+        console.log('New token price:', newPrice);
+
+        showNotification({
+          title: "Success",
+          message: `Sell order placed for ${amount} ${tokenSymbol} tokens for ${tradingPair === "HBAR" ? "ℏ" : "$"}${totalInTradingPair.toFixed(4)}`,
+        });
+      } else {
+        // Update order status to failed
+        await supabase
+          .from('orders')
+          .update({ status: 'failed' })
+          .eq('id', order.id);
+
+        throw new Error(`Transaction failed with status: ${status}`);
+      }
     } catch (error: any) {
-      toast({
+      console.error("Sell order error:", error);
+      showNotification({
         title: "Error",
-        description: error.message || "Failed to place sell order",
-        variant: "destructive",
+        message: error.message || "Failed to place sell order",
+        variant: "error",
       });
     } finally {
       setIsLoading(false);

@@ -9,6 +9,7 @@ export const tokens = [
   { symbol: "USDT", token_id: "0.0.1055472" }, //not confirmed on coingecko // let's see how it goes
   { symbol: "PANGOLIN", token_id: "0.0.1738930" },
 ];
+export const USDC_TOKEN_ID = "0.0.456858"; // 0.0.429274
 
 export async function getHbarUsdPrice(): Promise<number> {
   // Use CoinGecko API for real-time HBAR/USD price

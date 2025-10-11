@@ -23,8 +23,9 @@ import {
   ExternalLink,
   Copy,
 } from "lucide-react";
-import { useToast } from "@/components/ui/use-toast";
 import { WalletContext } from "@/contexts/WalletContext";
+
+import { useNotification } from "@/contexts/notification-context";
 
 export function WalletConnection() {
   const {
@@ -36,13 +37,14 @@ export function WalletConnection() {
     walletType,
     userProfile,
   } = useContext(WalletContext);
-  const { toast } = useToast();
+  const { showNotification } = useNotification();
   const handleCopyAddress = () => {
     if (accountId) {
       navigator.clipboard.writeText(accountId);
-      toast({
-        title: "Address copied!",
-        description: "Your wallet address has been copied to the clipboard.",
+      showNotification({
+        title: "Address Copied",
+        message: "Your wallet address has been copied to the clipboard",
+        variant: "default"
       });
     }
   };

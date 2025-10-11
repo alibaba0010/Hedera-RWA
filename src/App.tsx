@@ -27,4 +27,4 @@ function App() {
 }
 
 export default App;
-// TODO: Look into the max and initial supply value discrepancies
+

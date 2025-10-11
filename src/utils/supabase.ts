@@ -5,7 +5,26 @@ const supabaseUrl = getEnv("VITE_PUBLIC_SUPABASE_URL");
 const supabaseAnonKey = getEnv("VITE_PUBLIC_SUPABASE_ANON_KEY");
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+interface OrderBook {
+  id?: string;
+  token_id: string;
+  amount: number;
+  price: number;
+  order_type: 'buy' | 'sell';
+  status: 'pending' | 'completed' | 'failed';
+  buyer_id: string;
+  created_at?: string;
+}
 
+interface TradeHistory {
+  id?: string;
+  token_id: string;
+  price: number;
+  volume: number;
+  trade_type: 'buy' | 'sell';
+  trader_id: string;
+  created_at?: string;
+}
 /**
  * Save asset metadata CID and related info to Supabase
  * @param {Object} data - { tokenId?: string, metadataCID: string, [other fields] }
@@ -59,3 +78,32 @@ export async function fetchDataFromDatabase() {
   }
   return data;
 }
+export const saveOrder = async (orderData: Omit<OrderBook, 'id' | 'created_at'>) => {
+  const { data, error } = await supabase
+    .from('orders')
+    .insert([orderData])
+    .select()
+    .single();
+
+  if (error) {
+    console.error('Error saving order:', error);
+    throw new Error('Failed to save order');
+  }
+
+  return data;
+};
+
+export const saveTrade = async (tradeData: Omit<TradeHistory, 'id' | 'created_at'>) => {
+  const { data, error } = await supabase
+    .from('trade_history')
+    .insert([tradeData])
+    .select()
+    .single();
+
+  if (error) {
+    console.error('Error saving trade:', error);
+    throw new Error('Failed to save trade');
+  }
+
+  return data;
+};

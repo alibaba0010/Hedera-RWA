@@ -11,7 +11,6 @@ const accountBalance = async (accountId: string): Promise<string | null> => {
       .execute(client);
 
     // Extract the HBAR balance
-    console.log("Account Balance on hooks: ", accountBalance);
     const hbarBalance: string = accountBalance.hbars.toString();
 
     const formattedBalance: string = parseFloat(hbarBalance).toLocaleString(
