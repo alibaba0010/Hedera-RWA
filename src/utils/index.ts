@@ -80,3 +80,12 @@ export function getEnv(key: string): string {
   throw new Error(`Environment variable ${key} is not defined`);
 }
  export const topicId = TopicId.fromString(getEnv("VITE_PUBLIC_HEDERA_ASSET_TOPIC_ID"));
+
+ // Helper: Hash a file (SHA-256)
+export async function hashFile(file: File): Promise<string> {
+  const arrayBuffer = await file.arrayBuffer();
+  const hashBuffer = await crypto.subtle.digest("SHA-256", arrayBuffer);
+  return Array.from(new Uint8Array(hashBuffer))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}

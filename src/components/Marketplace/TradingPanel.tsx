@@ -8,29 +8,20 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TokenAssociationManager } from "@/utils/token-association";
 import { TokenId } from "@hashgraph/sdk";
+import { CandlestickChart } from "@/components/ui/candlestick-chart";
+import { Orders } from "./Orders";
 import {
-  ComposedChart,
-  Line,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-} from "recharts";
-import { 
-  subscribeToPriceUpdates, 
-  unsubscribeFromPriceUpdates, 
+  subscribeToPriceUpdates,
+  unsubscribeFromPriceUpdates,
   getTokenChartData,
   generateOrderBook,
-  updateTokenPrice 
+  updateTokenPrice,
 } from "@/utils/trading";
 import { WalletContext } from "@/contexts/WalletContext";
 import { TradingPanelProps } from "@/utils/assets";
-import { buyAssetToken, getTokenBalanceByTokenId } from "@/utils/hedera-integration";
+import { buyAssetToken, sellAssetToken } from "@/utils/hedera-integration";
 import { saveOrder, saveTrade, supabase } from "@/utils/supabase";
 import { useNotification } from "@/contexts/notification-context";
-
 
 export const TradingPanel = ({
   tokenomics,
@@ -45,7 +36,10 @@ export const TradingPanel = ({
   );
   const [chartData, setChartData] = useState<any[]>([]);
   const [orderBook, setOrderBook] = useState<any>({ asks: [], bids: [] });
-  const [currentPrice, setCurrentPrice] = useState<number>(tokenomics.pricePerTokenUSD);
+  const [orders, setOrders] = useState<any[]>([]);
+  const [currentPrice, setCurrentPrice] = useState<number>(
+    tokenomics.pricePerTokenUSD
+  );
 
   const [isLoading, setIsLoading] = useState(false);
   const [isCheckingAssociation, setIsCheckingAssociation] = useState(false);
@@ -53,27 +47,80 @@ export const TradingPanel = ({
   const { showNotification } = useNotification();
   const [tradingPair, setTradingPair] = useState<"USDC" | "HBAR">("HBAR");
 
-  const handlePriceUpdate = useCallback((newPrice: number) => {
-    setCurrentPrice(newPrice);
-    getTokenChartData(tokenId, tokenomics.pricePerTokenUSD).then(setChartData);
-    const orders = generateOrderBook(newPrice);
-    setOrderBook(orders);
-  }, [tokenId, tokenomics.pricePerTokenUSD]);
-useEffect(() => {
-  const getTokenBalance = async () => {
-  const tokenBalance = await getTokenBalanceByTokenId(tokenId)
-  console.log("Token Balance: ", tokenBalance);
-  }
-  getTokenBalance();
-},[tokenId])
+  const handlePriceUpdate = useCallback(
+    async (newPrice: number) => {
+      setCurrentPrice(newPrice);
+      
+      // Get updated chart data
+      const data = await getTokenChartData(tokenId, tokenomics.pricePerTokenUSD);
+      
+      // Transform to OHLC format
+      const transformedData = data.map((point: any) => ({
+        time: point.time,
+        open: point.price,
+        high: point.price * (1 + Math.random() * 0.02), // Simulated data
+        low: point.price * (1 - Math.random() * 0.02), // Simulated data
+        close: point.price,
+        volume: point.volume
+      }));
+      
+      setChartData(transformedData);
+      
+      // Update order book
+      const newOrders = generateOrderBook(newPrice);
+      setOrderBook(newOrders);
+      
+      // Refresh orders list
+      const { data: ordersData } = await supabase
+        .from('orders')
+        .select('*')
+        .eq('token_id', tokenId)
+        .order('created_at', { ascending: false });
+      
+      setOrders(ordersData || []);
+    },
+    [tokenId, tokenomics.pricePerTokenUSD]
+  );
+
   useEffect(() => {
     // Initialize with current data
-    getTokenChartData(tokenId, tokenomics.pricePerTokenUSD).then(setChartData);
+    const fetchData = async () => {
+      try {
+        const chartData = await getTokenChartData(tokenId, tokenomics.pricePerTokenUSD);
+        // Transform data to include OHLC (Open, High, Low, Close)
+        const transformedData = chartData.map((point: any) => ({
+          time: point.time,
+          open: point.price,
+          high: point.price * (1 + Math.random() * 0.02), // Simulated data
+          low: point.price * (1 - Math.random() * 0.02), // Simulated data
+          close: point.price,
+          volume: point.volume
+        }));
+        setChartData(transformedData);
+
+        // Fetch orders from supabase
+        const { data: ordersData } = await supabase
+          .from('orders')
+          .select('*')
+          .eq('token_id', tokenId)
+          .order('created_at', { ascending: false });
+        
+        setOrders(ordersData || []);
+      } catch (error) {
+        console.error('Error fetching data:', error);
+      }
+    };
+
+    fetchData();
     const orders = generateOrderBook(currentPrice);
     setOrderBook(orders);
 
     // Subscribe to price updates
-    subscribeToPriceUpdates(tokenId, handlePriceUpdate, tokenomics.pricePerTokenUSD);
+    subscribeToPriceUpdates(
+      tokenId,
+      handlePriceUpdate,
+      tokenomics.pricePerTokenUSD
+    );
 
     // Cleanup subscription on unmount
     return () => {
@@ -121,6 +168,7 @@ useEffect(() => {
         showNotification({
           title: "Success",
           message: `Successfully associated with ${tokenSymbol} token`,
+          variant: "success",
         });
       }
       return isAssociated;
@@ -151,7 +199,12 @@ useEffect(() => {
 
       // Convert amount to actual tokens (multiply by 100)
       const actualAmount = Number(amount) * 100;
-      console.log("Original amount:", amount, "Actual token amount:", actualAmount);
+      console.log(
+        "Original amount:",
+        amount,
+        "Actual token amount:",
+        actualAmount
+      );
 
       // Check token association first
       const isAssociated = await checkTokenAssociation();
@@ -164,19 +217,26 @@ useEffect(() => {
       }
 
       // Calculate the total value in the selected trading pair
-      const totalInTradingPair = tradingPair === "HBAR" 
-        ? totalValue * 5 // Simulated HBAR conversion
-        : totalValue;
+      const totalInTradingPair =
+        tradingPair === "HBAR"
+          ? totalValue * 5 // Simulated HBAR conversion
+          : totalValue;
 
       // Save the order first
-      console.log(" order Data: ", tokenId, actualAmount, currentPrice, accountId);
+      console.log(
+        " order Data: ",
+        tokenId,
+        actualAmount,
+        currentPrice,
+        accountId
+      );
       const order = await saveOrder({
         token_id: tokenId,
         amount: actualAmount,
         price: currentPrice,
-        order_type: 'buy', 
-        status: 'pending',
-        buyer_id: accountId
+        order_type: "buy",
+        status: "pending",
+        buyer_id: accountId,
       });
 
       console.log("Order saved:", order);
@@ -190,44 +250,52 @@ useEffect(() => {
         {
           tradingPair,
           value: totalInTradingPair,
-          pricePerToken: tradingPair === "HBAR" 
-            ? tokenomics.pricePerTokenUSD * 5 
-            : tokenomics.pricePerTokenUSD
+          pricePerToken:
+            tradingPair === "HBAR"
+              ? tokenomics.pricePerTokenUSD * 5
+              : tokenomics.pricePerTokenUSD,
         }
       );
-      
+
       console.log("Buy order status:", status);
       if (status === "SUCCESS") {
         // Update order status to completed
-        alert("Purchase successful!");
+
         await supabase
-          .from('orders')
-          .update({ status: 'completed' })
-          .eq('id', order.id);
+          .from("orders")
+          .update({ status: "completed" })
+          .eq("id", order.id);
 
         // Save to trade history
         await saveTrade({
           token_id: tokenId,
           price: currentPrice,
           volume: actualAmount,
-          trade_type: 'buy',
-          trader_id: accountId
+          trade_type: "buy",
+          trader_id: accountId,
         });
 
         // Update token price
-        const newPrice = await updateTokenPrice(tokenId, currentPrice, actualAmount, 'buy');
-        console.log('New token price:', newPrice);
+        const newPrice = await updateTokenPrice(
+          tokenId,
+          currentPrice,
+          actualAmount,
+          "buy"
+        );
+        console.log("New token price:", newPrice);
 
         showNotification({
-          title: "Success",
-          message: `Successfully purchased ${amount} ${tokenSymbol} tokens for ${tradingPair === "HBAR" ? "ℏ" : "$"}${totalInTradingPair.toFixed(4)}`,
+          title: "Buy Order",
+          message: `Successfully purchased ${amount} ${tokenSymbol} tokens for ${
+            tradingPair === "HBAR" ? "ℏ" : "$"
+          }${totalInTradingPair.toFixed(4)}`,
         });
       } else {
         // Update order status to failed
         await supabase
-          .from('orders')
-          .update({ status: 'failed' })
-          .eq('id', order.id);
+          .from("orders")
+          .update({ status: "failed" })
+          .eq("id", order.id);
 
         throw new Error(`Transaction failed with status: ${status}`);
       }
@@ -239,6 +307,7 @@ useEffect(() => {
         variant: "error",
       });
     } finally {
+      setAmount("");
       setIsLoading(false);
     }
   };
@@ -258,7 +327,12 @@ useEffect(() => {
 
       // Convert amount to actual tokens (multiply by 100)
       const actualAmount = Number(amount) * 100;
-      console.log("Original amount:", amount, "Actual token amount:", actualAmount);
+      console.log(
+        "Original amount:",
+        amount,
+        "Actual token amount:",
+        actualAmount
+      );
 
       // Check token association first
       const isAssociated = await checkTokenAssociation();
@@ -267,56 +341,77 @@ useEffect(() => {
       }
 
       // Calculate the total value in the selected trading pair
-      const totalInTradingPair = tradingPair === "HBAR" 
-        ? totalValue * 5 // Simulated HBAR conversion
-        : totalValue;
+      const totalInTradingPair =
+        tradingPair === "HBAR"
+          ? totalValue * 5 // Simulated HBAR conversion
+          : totalValue;
 
       // Save the order first
       const order = await saveOrder({
         token_id: tokenId,
         amount: actualAmount,
         price: currentPrice,
-        order_type: 'sell',
-        status: 'pending',
-        buyer_id: accountId
+        order_type: "sell",
+        status: "pending",
+        buyer_id: accountId,
       });
 
       console.log("Order saved:", order);
 
       // Proceed with sell order
       // TODO: Implement sellAssetToken function in hedera-integration.ts
-      const status = "SUCCESS"; // Temporary until sellAssetToken is implemented
-      
+      const { status } = await sellAssetToken(
+        tokenId,
+        accountId,
+        actualAmount,
+        signer,
+        {
+          tradingPair,
+          value: totalInTradingPair,
+
+          pricePerToken:
+            tradingPair === "HBAR"
+              ? tokenomics.pricePerTokenUSD * 5
+              : tokenomics.pricePerTokenUSD,
+        }
+      );
       if (status === "SUCCESS") {
         // Update order status to completed
         await supabase
-          .from('orders')
-          .update({ status: 'completed' })
-          .eq('id', order.id);
+          .from("orders")
+          .update({ status: "completed" })
+          .eq("id", order.id);
 
         // Save to trade history
         await saveTrade({
           token_id: tokenId,
           price: currentPrice,
           volume: actualAmount,
-          trade_type: 'sell',
-          trader_id: accountId
+          trade_type: "sell",
+          trader_id: accountId,
         });
 
         // Update token price
-        const newPrice = await updateTokenPrice(tokenId, currentPrice, actualAmount, 'sell');
-        console.log('New token price:', newPrice);
+        const newPrice = await updateTokenPrice(
+          tokenId,
+          currentPrice,
+          actualAmount,
+          "sell"
+        );
+        console.log("New token price:", newPrice);
 
         showNotification({
           title: "Success",
-          message: `Sell order placed for ${amount} ${tokenSymbol} tokens for ${tradingPair === "HBAR" ? "ℏ" : "$"}${totalInTradingPair.toFixed(4)}`,
+          message: `Sell order placed for ${amount} ${tokenSymbol} tokens for ${
+            tradingPair === "HBAR" ? "ℏ" : "$"
+          }${totalInTradingPair.toFixed(4)}`,
         });
       } else {
         // Update order status to failed
         await supabase
-          .from('orders')
-          .update({ status: 'failed' })
-          .eq('id', order.id);
+          .from("orders")
+          .update({ status: "failed" })
+          .eq("id", order.id);
 
         throw new Error(`Transaction failed with status: ${status}`);
       }
@@ -328,6 +423,7 @@ useEffect(() => {
         variant: "error",
       });
     } finally {
+      setAmount("")
       setIsLoading(false);
     }
   };
@@ -567,45 +663,20 @@ useEffect(() => {
           <h3 className="text-sm font-medium text-gray-400 mb-3">
             Price Chart
           </h3>
-          <div className="h-64 w-full bg-gray-950 rounded-lg p-2">
-            <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                <XAxis
-                  dataKey="time"
-                  tick={{ fontSize: 10, fill: "#9CA3AF" }}
-                  axisLine={{ stroke: "#374151" }}
-                />
-                <YAxis
-                  tick={{ fontSize: 10, fill: "#9CA3AF" }}
-                  axisLine={{ stroke: "#374151" }}
-                  domain={["dataMin - 0.001", "dataMax + 0.001"]}
-                />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: "#1F2937",
-                    border: "1px solid #374151",
-                    borderRadius: "6px",
-                    color: "#fff",
-                  }}
-                  formatter={(value: number, name: string) => [
-                    `$${value.toFixed(4)}`,
-                    name.charAt(0).toUpperCase() + name.slice(1),
-                  ]}
-                />
-                <Bar dataKey="volume" fill="#374151" opacity={0.3} />
-                <Line
-                  type="monotone"
-                  dataKey="price"
-                  stroke={priceChange >= 0 ? "#10B981" : "#EF4444"}
-                  strokeWidth={2}
-                  dot={false}
-                />
-              </ComposedChart>
-            </ResponsiveContainer>
+          <div className="h-[300px] w-full bg-gray-950 rounded-lg">
+            <CandlestickChart
+              data={chartData}
+              basePrice={tokenomics.pricePerTokenUSD}
+            />
           </div>
         </div>
       </Card>
+
+      {/* Orders section */}
+      <Orders
+        orders={orders}
+        tokenSymbol={tokenSymbol}
+      />
     </div>
   );
 };

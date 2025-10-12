@@ -39,15 +39,16 @@ import FileUploader from "./FileUploader";
 import { SectionHeader, StepIndicator } from "./FromContent";
 import LocationSelector from "./LocationSelector";
 import AssetValueSupply from "./AssetValueSupply";
-import { 
+import {
   createHederaToken,
   sendHcsMessage,
   publishToRegistry,
-  hashFile,
+  
 } from "@/utils/hedera-integration";
 import { WalletContext } from "@/contexts/WalletContext";
 import { saveMetadataCIDToDatabase } from "@/utils/supabase";
-import { uploadFileToIPFS, uploadJSONToIPFS } from "@/utils";
+import { hashFile, uploadFileToIPFS, uploadJSONToIPFS } from "@/utils";
+import { useNotification } from "@/contexts/notification-context";
 
 const useDebounce = (value: string, delay: number) => {
   const [debouncedValue, setDebouncedValue] = useState(value);
@@ -102,6 +103,7 @@ const AddAssetForm: FC = () => {
   const [customInitialSupplyPercentage, setCustomInitialSupplyPercentage] =
     useState("");
   const [calculatedInitialSupply, setCalculatedInitialSupply] = useState(0);
+  const { showNotification } = useNotification();
 
   const debouncedDescription = useDebounce(form.assetDescription, 500);
 
@@ -506,7 +508,7 @@ const AddAssetForm: FC = () => {
         await saveMetadataCIDToDatabase(data);
         await publishToRegistry(tokenId, metadataCID);
 
-        await sendHcsMessage( {
+        await sendHcsMessage({
           type: "ASSET_CREATED",
           tokenId,
           metadataCID,
@@ -514,20 +516,26 @@ const AddAssetForm: FC = () => {
           timestamp: new Date().toISOString(),
         });
 
-        setCompletedSubmissionSteps((prev) => [...prev, 4]); 
+        setCompletedSubmissionSteps((prev) => [...prev, 4]);
         setCurrentSubmissionStep(-1);
         setShowStepComplete(false);
-
-        alert("Asset created successfully!");
+        showNotification({
+          title: "Asset Creation",
+          message: "Asset created successfully!",
+          variant: "success",
+        });
 
         // Reset form
         setForm(initialForm);
         setStep(0);
       } catch (error: any) {
         console.error("Submission error:", error.message);
-        alert(
-          "Failed to create asset: " + (error.message || "Please try again.")
-        );
+        showNotification({
+          title: "Asset Creation",
+          message: "Failed to create asset, Please try again",
+          variant: "error",
+        });
+       
       } finally {
         setLoading(false);
       }

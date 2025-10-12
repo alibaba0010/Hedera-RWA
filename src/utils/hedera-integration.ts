@@ -14,7 +14,11 @@ import {
 } from "@hashgraph/sdk";
 import { getEnv, topicId } from "@/utils";
 import { DAppSigner } from "@hashgraph/hedera-wallet-connect";
-
+interface TradingOptions {
+  tradingPair: "HBAR" | "USDC";
+  value: number;
+  pricePerToken: number;
+}
 // Utility functions for Hedera, IPFS, and Mirror Node integration
 // These are stubs to be filled with real logic and API keys as needed
 export async function initializeHederaClient(): Promise<{
@@ -139,14 +143,7 @@ export async function createHederaToken({
     throw new Error(`Failed to create token: ${error.message}`);
   }
 }
-// Helper: Hash a file (SHA-256)
-export async function hashFile(file: File): Promise<string> {
-  const arrayBuffer = await file.arrayBuffer();
-  const hashBuffer = await crypto.subtle.digest("SHA-256", arrayBuffer);
-  return Array.from(new Uint8Array(hashBuffer))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
+
 // --- Hedera Consensus Service (HCS) ---
 export async function sendHcsMessage(message: any): Promise<{
   messageContent: string;
@@ -221,18 +218,6 @@ export async function publishToRegistry(tokenId: string, metadataCID: string) {
   );
 }
 
-export async function createTopic() {
-  const { client } = await initializeHederaClient();
-  const tx = new TopicCreateTransaction().setTopicMemo("Asset Registry");
-  const submit = await tx.execute(client);
-  const receipt = await submit.getReceipt(client);
-  if (!receipt.topicId) {
-    throw new Error("Failed to create topic: topicId is null");
-  }
-  const topicId = receipt.topicId.toString();
-  console.log("New Topic ID:", topicId);
-  return topicId;
-}
 
 // --- Mirror Node ---
 export async function fetchAssetDataFromMirrorNode(
@@ -302,11 +287,7 @@ export async function checkTokenAssocationMirrorNode(
     throw new Error(`Failed to check token association: ${error.message}`);
   }
 }
-interface TradingOptions {
-  tradingPair: "HBAR" | "USDC";
-  value: number;
-  pricePerToken: number;
-}
+
 
 export const buyAssetToken = async (
   tokenId: string,
@@ -317,7 +298,6 @@ export const buyAssetToken = async (
 ): Promise<{ status: string; receipt: any }> => {
   try {
     const { client, treasuryId, treasuryKey } = await initializeHederaClient();
-    console.log("Options: ", options);
     // Handle payment based on trading pair
     if (options.tradingPair === "HBAR") {
       const hbarAmount = new Hbar(options.value);
@@ -381,17 +361,18 @@ export const sellAssetToken = async (
   options: TradingOptions
 ): Promise<{ status: string; receipt: any }> => {
   try {
-    const { client, treasuryId } = await initializeHederaClient();
+    const { client, treasuryId, treasuryKey } = await initializeHederaClient();
+    console.log("Options:........ ", options);
 
     // Create the transfer transaction
     const tokenTransferTx = await new TransferTransaction()
       .addTokenTransfer(tokenId, accountId, -amount) // Deduct from seller
       .addTokenTransfer(tokenId, treasuryId, amount) // Add to treasury
       .freezeWith(client)
-      .signWithSigner(signer); // Sign with seller's key
+      .sign(treasuryKey); 
     console.log("Token Transfer Transaction:", tokenTransferTx);
     // Execute the transaction
-    const tokenTransferSubmit = await tokenTransferTx.execute(client);
+    const tokenTransferSubmit = await tokenTransferTx.executeWithSigner(signer);
     const tokenTransferRx = await tokenTransferSubmit.getReceipt(client);
     console.log("Token Transfer Receipt:", tokenTransferRx);
 
@@ -400,27 +381,36 @@ export const sellAssetToken = async (
         `Transaction failed with status: ${tokenTransferRx.status}`
       );
     }
+      // Handle payment based on trading pair
+    if (options.tradingPair === "HBAR") {
+      const hbarAmount = new Hbar(options.value);
+      const deductHbarTx = await new TransferTransaction()
+        .addHbarTransfer(treasuryId, hbarAmount.negated()) // Deduct HBAR from buyer
+        .addHbarTransfer(accountId, hbarAmount) // Add HBAR to treasury
+        .freezeWith(client)
+        .sign(treasuryKey);
+      console.log("Deduct HBAR Transaction:", deductHbarTx);
+      const deductHbarSubmit = await deductHbarTx.executeWithSigner(signer);
+      console.log("Deduct HBAR Submit:", deductHbarSubmit);
+      const deductHbarRx = await deductHbarSubmit.getReceipt(client);
+      console.log("Deduct HBAR Receipt:", deductHbarRx);
+      if (deductHbarRx.status.toString() !== "SUCCESS") {
+        throw new Error(
+          `HBAR payment failed with status: ${deductHbarRx.status}`
+        );
+      }
+      console.log(`HBAR payment successful: ${deductHbarRx.status} ✅`);
+    } else {
+      // For USDC trading pair
+      // TODO: Implement USDC token transfer once the USDC token ID is available
+      // This would involve a similar token transfer transaction but with the USDC token
+      console.log("USDC payment to be implemented");
+    }
 
     console.log(`Token transfer successful: ${tokenTransferRx.status} ✅`);
     // Optionally, transfer HBAR from treasury to seller as payment
-    const deductHbarFromTreasuryTx = await new TransferTransaction()
-      .addHbarTransfer(treasuryId, new Hbar(-0.1)) // Deduct 0.1 HBAR from treasury
-      .addHbarTransfer(accountId, new Hbar(0.1)) // Add 0.1 HBAR to seller
-      .freezeWith(client)
-      .signWithSigner(signer);
-    const deductHbarFromTreasurySubmit = await deductHbarFromTreasuryTx.execute(
-      client
-    );
-    const deductHbarFromTreasuryRx =
-      await deductHbarFromTreasurySubmit.getReceipt(client);
-    if (deductHbarFromTreasuryRx.status.toString() !== "SUCCESS") {
-      throw new Error(
-        `HBAR transfer to seller failed with status: ${deductHbarFromTreasuryRx.status}`
-      );
-    }
-    console.log(
-      `HBAR transfer to seller successful: ${deductHbarFromTreasuryRx.status} ✅`
-    );
+    
+  
     return {
       status: tokenTransferRx.status.toString(),
       receipt: tokenTransferRx,
@@ -448,3 +438,16 @@ export const getTokenBalanceByTokenId = async (tokenId: string) => {
   }
   return tokenBalance.balance;
 };
+
+export async function createTopic() {
+  const { client } = await initializeHederaClient();
+  const tx = new TopicCreateTransaction().setTopicMemo("Asset Registry");
+  const submit = await tx.execute(client);
+  const receipt = await submit.getReceipt(client);
+  if (!receipt.topicId) {
+    throw new Error("Failed to create topic: topicId is null");
+  }
+  const topicId = receipt.topicId.toString();
+  console.log("New Topic ID:", topicId);
+  return topicId;
+}
