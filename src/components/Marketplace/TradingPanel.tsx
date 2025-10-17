@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TokenAssociationManager } from "@/utils/token-association";
 import { TokenId } from "@hashgraph/sdk";
-import { CandlestickChart } from "@/components/ui/candlestick-chart";
+// import { CandlestickChart } from "@/components/ui/candlestick-chart";
 import { Orders } from "./Orders";
 import {
   subscribeToPriceUpdates,
@@ -40,7 +40,7 @@ export const TradingPanel = ({
   const [currentPrice, setCurrentPrice] = useState<number>(
     tokenomics.pricePerTokenUSD
   );
-
+const usdcTokenId = "0.0.429274"; // USDC token ID
   const [isLoading, setIsLoading] = useState(false);
   const [isCheckingAssociation, setIsCheckingAssociation] = useState(false);
   const [orderType, setOrderType] = useState<"market" | "limit">("market");
@@ -50,10 +50,13 @@ export const TradingPanel = ({
   const handlePriceUpdate = useCallback(
     async (newPrice: number) => {
       setCurrentPrice(newPrice);
-      
+
       // Get updated chart data
-      const data = await getTokenChartData(tokenId, tokenomics.pricePerTokenUSD);
-      
+      const data = await getTokenChartData(
+        tokenId,
+        tokenomics.pricePerTokenUSD
+      );
+
       // Transform to OHLC format
       const transformedData = data.map((point: any) => ({
         time: point.time,
@@ -61,22 +64,22 @@ export const TradingPanel = ({
         high: point.price * (1 + Math.random() * 0.02), // Simulated data
         low: point.price * (1 - Math.random() * 0.02), // Simulated data
         close: point.price,
-        volume: point.volume
+        volume: point.volume,
       }));
-      
+
       setChartData(transformedData);
-      
+
       // Update order book
       const newOrders = generateOrderBook(newPrice);
       setOrderBook(newOrders);
-      
+
       // Refresh orders list
       const { data: ordersData } = await supabase
-        .from('orders')
-        .select('*')
-        .eq('token_id', tokenId)
-        .order('created_at', { ascending: false });
-      
+        .from("orders")
+        .select("*")
+        .eq("token_id", tokenId)
+        .order("created_at", { ascending: false });
+
       setOrders(ordersData || []);
     },
     [tokenId, tokenomics.pricePerTokenUSD]
@@ -86,7 +89,10 @@ export const TradingPanel = ({
     // Initialize with current data
     const fetchData = async () => {
       try {
-        const chartData = await getTokenChartData(tokenId, tokenomics.pricePerTokenUSD);
+        const chartData = await getTokenChartData(
+          tokenId,
+          tokenomics.pricePerTokenUSD
+        );
         // Transform data to include OHLC (Open, High, Low, Close)
         const transformedData = chartData.map((point: any) => ({
           time: point.time,
@@ -94,20 +100,20 @@ export const TradingPanel = ({
           high: point.price * (1 + Math.random() * 0.02), // Simulated data
           low: point.price * (1 - Math.random() * 0.02), // Simulated data
           close: point.price,
-          volume: point.volume
+          volume: point.volume,
         }));
         setChartData(transformedData);
 
         // Fetch orders from supabase
         const { data: ordersData } = await supabase
-          .from('orders')
-          .select('*')
-          .eq('token_id', tokenId)
-          .order('created_at', { ascending: false });
-        
+          .from("orders")
+          .select("*")
+          .eq("token_id", tokenId)
+          .order("created_at", { ascending: false });
+
         setOrders(ordersData || []);
       } catch (error) {
-        console.error('Error fetching data:', error);
+        console.error("Error fetching data:", error);
       }
     };
 
@@ -128,7 +134,7 @@ export const TradingPanel = ({
     };
   }, [tokenId, handlePriceUpdate, tokenomics.pricePerTokenUSD, currentPrice]);
 
-  const checkTokenAssociation = async () => {
+  const checkTokenAssociation = async (tokenId: string) => {
     if (!accountId || !tokenId) {
       showNotification({
         title: "Error",
@@ -142,23 +148,41 @@ export const TradingPanel = ({
       setIsCheckingAssociation(true);
       const tokenManager = new TokenAssociationManager();
 
-      const isAssociated = await tokenManager.isTokenAssociated(
+      // Check association for the asset token
+      const isAssetAssociated = await tokenManager.isTokenAssociated(
         {
           type: walletType === "hedera" ? "hedera" : "evm",
           accountId: accountId ?? undefined,
-          provider: walletType === "evm" ? window.ethereum : undefined, // Only for MetaMask
+          provider: walletType === "evm" ? window.ethereum : undefined,
           evmAddress: evmAddress ? evmAddress : undefined,
         },
         TokenId.fromString(tokenId)
       );
-      console.log("In checkTokenAssociation, isAssociated:", isAssociated);
-      if (!isAssociated) {
+
+      // If trading in USDC, also check USDC token association
+      let isUsdcAssociated = true;
+      if (tradingPair === "USDC") {
+        isUsdcAssociated = await tokenManager.isTokenAssociated(
+          {
+            type: walletType === "hedera" ? "hedera" : "evm",
+            accountId: accountId ?? undefined,
+            provider: walletType === "evm" ? window.ethereum : undefined,
+            evmAddress: evmAddress ? evmAddress : undefined,
+          },
+          TokenId.fromString(usdcTokenId)
+        );
+      }
+
+      console.log("Token associations:", { isAssetAssociated, isUsdcAssociated });
+
+      // Associate the asset token if needed
+      if (!isAssetAssociated) {
         await tokenManager.associateToken(
           {
             type: walletType === "hedera" ? "hedera" : "evm",
             accountId: accountId ?? undefined,
             signer,
-            provider: walletType === "evm" ? window.ethereum : undefined, // Only for MetaMask
+            provider: walletType === "evm" ? window.ethereum : undefined,
             evmAddress: evmAddress ? evmAddress : undefined,
             snapEnabled: false,
             network: "testnet",
@@ -171,7 +195,29 @@ export const TradingPanel = ({
           variant: "success",
         });
       }
-      return isAssociated;
+
+      // Associate USDC token if needed and trading in USDC
+      if (tradingPair === "USDC" && !isUsdcAssociated) {
+        await tokenManager.associateToken(
+          {
+            type: walletType === "hedera" ? "hedera" : "evm",
+            accountId: accountId ?? undefined,
+            signer,
+            provider: walletType === "evm" ? window.ethereum : undefined,
+            evmAddress: evmAddress ? evmAddress : undefined,
+            snapEnabled: false,
+            network: "testnet",
+          },
+          TokenId.fromString(usdcTokenId)
+        );
+        showNotification({
+          title: "Success",
+          message: "Successfully associated with USDC token",
+          variant: "success",
+        });
+      }
+
+      return isAssetAssociated && (tradingPair === "HBAR" || isUsdcAssociated);
     } catch (error: any) {
       showNotification({
         title: "Error",
@@ -207,7 +253,7 @@ export const TradingPanel = ({
       );
 
       // Check token association first
-      const isAssociated = await checkTokenAssociation();
+      const isAssociated = await checkTokenAssociation(tokenId);
       console.log(
         "Token is associated, proceeding with buy order...",
         isAssociated
@@ -219,7 +265,7 @@ export const TradingPanel = ({
       // Calculate the total value in the selected trading pair
       const totalInTradingPair =
         tradingPair === "HBAR"
-          ? totalValue * 5 // Simulated HBAR conversion
+          ? totalValue * 5 
           : totalValue;
 
       // Save the order first
@@ -335,7 +381,7 @@ export const TradingPanel = ({
       );
 
       // Check token association first
-      const isAssociated = await checkTokenAssociation();
+      const isAssociated = await checkTokenAssociation(tokenId);
       if (!isAssociated || !signer) {
         return;
       }
@@ -423,7 +469,7 @@ export const TradingPanel = ({
         variant: "error",
       });
     } finally {
-      setAmount("")
+      setAmount("");
       setIsLoading(false);
     }
   };
@@ -663,20 +709,21 @@ export const TradingPanel = ({
           <h3 className="text-sm font-medium text-gray-400 mb-3">
             Price Chart
           </h3>
+          {/*
           <div className="h-[300px] w-full bg-gray-950 rounded-lg">
             <CandlestickChart
               data={chartData}
               basePrice={tokenomics.pricePerTokenUSD}
             />
           </div>
+            */}
         </div>
       </Card>
 
       {/* Orders section */}
-      <Orders
-        orders={orders}
-        tokenSymbol={tokenSymbol}
-      />
+      <Card>
+        <Orders orders={orders} tokenSymbol={tokenSymbol} />
+      </Card>
     </div>
   );
 };

@@ -54,12 +54,12 @@ export function Orders({ orders, tokenSymbol }: OrdersProps) {
       switch (sortBy) {
         case "date":
           return sortOrder === "asc"
-            ? new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-            : new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+            ? new Date(a.created_at).getTime() -
+                new Date(b.created_at).getTime()
+            : new Date(b.created_at).getTime() -
+                new Date(a.created_at).getTime();
         case "price":
-          return sortOrder === "asc"
-            ? a.price - b.price
-            : b.price - a.price;
+          return sortOrder === "asc" ? a.price - b.price : b.price - a.price;
         case "amount":
           return sortOrder === "asc"
             ? a.amount - b.amount
@@ -83,7 +83,10 @@ export function Orders({ orders, tokenSymbol }: OrdersProps) {
             />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline" className="bg-gray-800 border-gray-700">
+                <Button
+                  variant="outline"
+                  className="bg-gray-800 border-gray-700"
+                >
                   Filter: {filter.charAt(0).toUpperCase() + filter.slice(1)}
                 </Button>
               </DropdownMenuTrigger>
@@ -131,7 +134,8 @@ export function Orders({ orders, tokenSymbol }: OrdersProps) {
                     }
                   }}
                 >
-                  Price {sortBy === "price" && (sortOrder === "asc" ? "↑" : "↓")}
+                  Price{" "}
+                  {sortBy === "price" && (sortOrder === "asc" ? "↑" : "↓")}
                 </TableHead>
                 <TableHead
                   className="text-gray-400 cursor-pointer"
@@ -173,10 +177,10 @@ export function Orders({ orders, tokenSymbol }: OrdersProps) {
                     ${order.price.toFixed(4)}
                   </TableCell>
                   <TableCell className="text-gray-300">
-                    {order.amount} {tokenSymbol}
+                    {order.amount / 100} {tokenSymbol}
                   </TableCell>
                   <TableCell className="text-gray-300">
-                    ${(order.price * order.amount).toFixed(2)}
+                    ${((order.price * order.amount)/100).toFixed(2)}
                   </TableCell>
                   <TableCell>
                     <Badge

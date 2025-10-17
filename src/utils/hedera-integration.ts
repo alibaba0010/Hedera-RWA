@@ -320,9 +320,20 @@ export const buyAssetToken = async (
       console.log(`HBAR payment successful: ${deductHbarRx.status} ✅`);
     } else {
       // For USDC trading pair
-      // TODO: Implement USDC token transfer once the USDC token ID is available
-      // This would involve a similar token transfer transaction but with the USDC token
-      console.log("USDC payment to be implemented");
+      const usdcAmount = options.value * 100; // Convert to lowest denomination
+      const usdcTransferTx = await new TransferTransaction()
+        .addTokenTransfer('0.0.429274', accountId, -usdcAmount) // Deduct USDC from buyer
+        .addTokenTransfer('0.0.429274', treasuryId, usdcAmount) // Add USDC to treasury
+        .freezeWith(client);
+
+      const usdcTransferSign = await usdcTransferTx.signWithSigner(signer);
+      const usdcTransferSubmit = await usdcTransferSign.execute(client);
+      const usdcTransferRx = await usdcTransferSubmit.getReceipt(client);
+
+      if (usdcTransferRx.status.toString() !== "SUCCESS") {
+        throw new Error(`USDC payment failed with status: ${usdcTransferRx.status}`);
+      }
+      console.log(`USDC payment successful: ${usdcTransferRx.status} ✅`);
     }
     // Create the transfer transaction
     const tokenTransferTx = await new TransferTransaction()
@@ -402,9 +413,20 @@ export const sellAssetToken = async (
       console.log(`HBAR payment successful: ${deductHbarRx.status} ✅`);
     } else {
       // For USDC trading pair
-      // TODO: Implement USDC token transfer once the USDC token ID is available
-      // This would involve a similar token transfer transaction but with the USDC token
-      console.log("USDC payment to be implemented");
+      const usdcAmount = options.value * 100; // Convert to lowest denomination
+      const usdcTransferTx = await new TransferTransaction()
+        .addTokenTransfer('0.0.429274', treasuryId, -usdcAmount) // Deduct USDC from treasury
+        .addTokenTransfer('0.0.429274', accountId, usdcAmount) // Add USDC to seller
+        .freezeWith(client)
+        .sign(treasuryKey);
+
+      const usdcTransferSubmit = await usdcTransferTx.executeWithSigner(signer);
+      const usdcTransferRx = await usdcTransferSubmit.getReceipt(client);
+
+      if (usdcTransferRx.status.toString() !== "SUCCESS") {
+        throw new Error(`USDC payment failed with status: ${usdcTransferRx.status}`);
+      }
+      console.log(`USDC payment successful: ${usdcTransferRx.status} ✅`);
     }
 
     console.log(`Token transfer successful: ${tokenTransferRx.status} ✅`);

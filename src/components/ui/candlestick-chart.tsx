@@ -1,110 +1,118 @@
-"use client";
+"use client"
 
-import { useEffect, useRef } from "react";
-import { createChart, ColorType } from "lightweight-charts";
+import { useEffect, useRef } from "react"
+import { createChart } from "lightweight-charts"
 
 interface CandlestickChartProps {
   data: {
-    time: string;
-    open: number;
-    high: number;
-    low: number;
-    close: number;
-    volume?: number;
-  }[];
-  basePrice: number;
+    time: string
+    open: number
+    high: number
+    low: number
+    close: number
+    volume?: number
+  }[]
+  basePrice: number
 }
 
 export function CandlestickChart({ data, basePrice }: CandlestickChartProps) {
-  const chartContainerRef = useRef<HTMLDivElement>(null);
-  const chart = useRef<any>(null);
+  const chartContainerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    if (!chartContainerRef.current) return;
+    if (!chartContainerRef.current) return
 
-    // Create the chart
-    chart.current = createChart(chartContainerRef.current, {
+    // Create chart instance
+    const chart = createChart(chartContainerRef.current, {
+      width: chartContainerRef.current.clientWidth,
+      height: 300,
       layout: {
-        background: { type: ColorType.Solid, color: "rgb(17, 24, 39)" },
+        background: { type: 'solid', color: "rgb(17, 24, 39)" },
         textColor: "rgba(255, 255, 255, 0.9)",
       },
       grid: {
-        vertLines: { color: "rgba(55, 65, 81, 0.5)" },
-        horzLines: { color: "rgba(55, 65, 81, 0.5)" },
+        vertLines: { visible: true, color: "rgba(55, 65, 81, 0.5)" },
+        horzLines: { visible: true, color: "rgba(55, 65, 81, 0.5)" },
       },
-      width: chartContainerRef.current.clientWidth,
-      height: 300,
-    });
+    })
 
-    // Create candlestick series
-    const candlestickSeries = chart.current.addCandlestickSeries({
-      upColor: "rgb(34, 197, 94)",
-      downColor: "rgb(239, 68, 68)",
-      borderVisible: false,
-      wickUpColor: "rgb(34, 197, 94)",
-      wickDownColor: "rgb(239, 68, 68)",
-    });
-
-    // Add base price line
-    const baselineSeries = chart.current.addLineSeries({
-      color: "rgba(255, 255, 255, 0.5)",
-      lineWidth: 1,
-      lineStyle: 2, // Dashed line
-    });
-
-    // Format data for candlestick chart
-    const formattedData = data.map((d) => ({
-      time: d.time,
+    // Format the data with proper timestamps
+    const mainData = data.map((d) => ({
+      time: Math.floor(new Date(d.time).getTime() / 1000),
       open: d.open,
       high: d.high,
       low: d.low,
       close: d.close,
-    }));
+    }))
+
+    const baselineData = data.map((d) => ({
+      time: new Date(d.time).toISOString().slice(0, 10), // "YYYY-MM-DD"
+      value: basePrice,
+    }))
+
+    // Use addCandlestickSeries from the correct chart API
+    // If you get a type error, ensure you are using the latest lightweight-charts and correct types
+    // @ts-ignore
+    const mainSeries = (chart as any).addCandlestickSeries({
+      upColor: "rgb(34, 197, 94)",
+      downColor: "rgb(239, 68, 68)",
+      wickUpColor: "rgb(34, 197, 94)",
+      wickDownColor: "rgb(239, 68, 68)",
+      borderVisible: false,
+    })
+
+    const baselineSeries = chart.addSeries(
+      {
+        type: 'Line',
+        color: "rgba(255, 255, 255, 0.5)",
+        lineWidth: 1,
+        lineStyle: 2,
+      }
+    )
 
     // Set the data
-    candlestickSeries.setData(formattedData);
+    mainSeries.setData(mainData)
+    baselineSeries.setData(baselineData)
 
-    // Add baseline
-    const baselineData = data.map((d) => ({
-      time: d.time,
-      value: basePrice,
-    }));
-    baselineSeries.setData(baselineData);
-
-    // Add volume histogram if available
+    // Add volume if available
     if (data[0]?.volume !== undefined) {
-      const volumeSeries = chart.current.addHistogramSeries({
+      // Use addCustomSeries for histogram/volume
+      const volumeSeries = chart.addCustomSeries({
+        type: 'Histogram',
         color: "rgba(55, 65, 81, 0.5)",
-        priceFormat: {
-          type: "volume",
-        },
-        priceScaleId: "", // Set as an overlay
+        priceFormat: { type: "volume" },
+        overlay: true,
         scaleMargins: {
           top: 0.8,
           bottom: 0,
         },
-      });
+      })
 
       const volumeData = data.map((d) => ({
-        time: d.time,
+        time: Math.floor(new Date(d.time).getTime() / 1000),
         value: d.volume || 0,
-        color:
-          d.close >= d.open
-            ? "rgba(34, 197, 94, 0.3)"
-            : "rgba(239, 68, 68, 0.3)",
-      }));
+        color: d.close >= d.open ? "rgba(34, 197, 94, 0.3)" : "rgba(239, 68, 68, 0.3)",
+      }))
 
-      volumeSeries.setData(volumeData);
+      volumeSeries.setData(volumeData)
     }
 
-    // Fit the content
-    chart.current.timeScale().fitContent();
+    // Fit all data into view
+    chart.timeScale().fitContent()
 
-    // Cleanup
+    // Handle window resizing
+    const handleResize = () => {
+      chart.applyOptions({
+        width: chartContainerRef.current?.clientWidth || 800,
+      })
+    }
+
+    window.addEventListener("resize", handleResize)
+
     return () => {
-      chart.current?.remove();
-    };
-  }, [data, basePrice]);
+      window.removeEventListener("resize", handleResize)
+      chart.remove()
+    }
+  }, [data, basePrice])
 
-  return <div ref={chartContainerRef} />;
+  return <div ref={chartContainerRef} className="w-full h-[300px]" />
 }
