@@ -22,6 +22,7 @@ import { TradingPanelProps } from "@/utils/assets";
 import { buyAssetToken, sellAssetToken } from "@/utils/hedera-integration";
 import { saveOrder, saveTrade, supabase } from "@/utils/supabase";
 import { useNotification } from "@/contexts/notification-context";
+import { usdcTokenId } from "@/utils";
 
 export const TradingPanel = ({
   tokenomics,
@@ -36,11 +37,11 @@ export const TradingPanel = ({
   );
   const [chartData, setChartData] = useState<any[]>([]);
   const [orderBook, setOrderBook] = useState<any>({ asks: [], bids: [] });
+  const [status, setStatus] = useState<string>("");
   const [orders, setOrders] = useState<any[]>([]);
   const [currentPrice, setCurrentPrice] = useState<number>(
     tokenomics.pricePerTokenUSD
   );
-const usdcTokenId = "0.0.429274"; // USDC token ID
   const [isLoading, setIsLoading] = useState(false);
   const [isCheckingAssociation, setIsCheckingAssociation] = useState(false);
   const [orderType, setOrderType] = useState<"market" | "limit">("market");
@@ -173,7 +174,10 @@ const usdcTokenId = "0.0.429274"; // USDC token ID
         );
       }
 
-      console.log("Token associations:", { isAssetAssociated, isUsdcAssociated });
+      console.log("Token associations:", {
+        isAssetAssociated,
+        isUsdcAssociated,
+      });
 
       // Associate the asset token if needed
       if (!isAssetAssociated) {
@@ -245,12 +249,6 @@ const usdcTokenId = "0.0.429274"; // USDC token ID
 
       // Convert amount to actual tokens (multiply by 100)
       const actualAmount = Number(amount) * 100;
-      console.log(
-        "Original amount:",
-        amount,
-        "Actual token amount:",
-        actualAmount
-      );
 
       // Check token association first
       const isAssociated = await checkTokenAssociation(tokenId);
@@ -264,53 +262,46 @@ const usdcTokenId = "0.0.429274"; // USDC token ID
 
       // Calculate the total value in the selected trading pair
       const totalInTradingPair =
-        tradingPair === "HBAR"
-          ? totalValue * 5 
-          : totalValue;
-
-      // Save the order first
-      console.log(
-        " order Data: ",
-        tokenId,
-        actualAmount,
-        currentPrice,
-        accountId
-      );
-      const order = await saveOrder({
-        token_id: tokenId,
-        amount: actualAmount,
-        price: currentPrice,
-        order_type: "buy",
-        status: "pending",
-        buyer_id: accountId,
-      });
-
-      console.log("Order saved:", order);
-
-      // Execute the buy order using buyAssetToken
-      const { status } = await buyAssetToken(
-        tokenId,
-        accountId,
-        actualAmount,
-        signer,
-        {
-          tradingPair,
-          value: totalInTradingPair,
-          pricePerToken:
-            tradingPair === "HBAR"
-              ? tokenomics.pricePerTokenUSD * 5
-              : tokenomics.pricePerTokenUSD,
+        tradingPair === "HBAR" ? totalValue * 5 : totalValue;
+      if (tradingPair === "USDC") {
+        const isUsdcAssociated = await checkTokenAssociation(usdcTokenId);
+        if (!isUsdcAssociated) {
+          return;
         }
-      );
+        //TODO: check if user has enough USDC balance
+        const { status } = await buyAssetToken(
+          tokenId,
+          accountId,
+          actualAmount,
+          signer,
+          tradingPair,
+          totalInTradingPair // value in usdc
+        );
+        setStatus(status);
+      } else {
+        //TODO: check if user has enough HBAR balance
+        const { status } = await buyAssetToken(
+          tokenId,
+          accountId,
+          actualAmount,
+          signer,
+          tradingPair,
+          totalInTradingPair // value in hbar
+        );
+        setStatus(status);
+      }
 
       console.log("Buy order status:", status);
       if (status === "SUCCESS") {
         // Update order status to completed
-
-        await supabase
-          .from("orders")
-          .update({ status: "completed" })
-          .eq("id", order.id);
+        await saveOrder({
+          token_id: tokenId,
+          amount: actualAmount,
+          price: currentPrice,
+          order_type: "buy",
+          status: "completed",
+          buyer_id: accountId,
+        });
 
         // Save to trade history
         await saveTrade({
@@ -322,6 +313,7 @@ const usdcTokenId = "0.0.429274"; // USDC token ID
         });
 
         // Update token price
+        // TODO: check this functionality later
         const newPrice = await updateTokenPrice(
           tokenId,
           currentPrice,
@@ -336,14 +328,6 @@ const usdcTokenId = "0.0.429274"; // USDC token ID
             tradingPair === "HBAR" ? "ℏ" : "$"
           }${totalInTradingPair.toFixed(4)}`,
         });
-      } else {
-        // Update order status to failed
-        await supabase
-          .from("orders")
-          .update({ status: "failed" })
-          .eq("id", order.id);
-
-        throw new Error(`Transaction failed with status: ${status}`);
       }
     } catch (error: any) {
       console.error("Buy order error:", error);
@@ -373,12 +357,6 @@ const usdcTokenId = "0.0.429274"; // USDC token ID
 
       // Convert amount to actual tokens (multiply by 100)
       const actualAmount = Number(amount) * 100;
-      console.log(
-        "Original amount:",
-        amount,
-        "Actual token amount:",
-        actualAmount
-      );
 
       // Check token association first
       const isAssociated = await checkTokenAssociation(tokenId);
@@ -386,24 +364,7 @@ const usdcTokenId = "0.0.429274"; // USDC token ID
         return;
       }
 
-      // Calculate the total value in the selected trading pair
-      const totalInTradingPair =
-        tradingPair === "HBAR"
-          ? totalValue * 5 // Simulated HBAR conversion
-          : totalValue;
-
-      // Save the order first
-      const order = await saveOrder({
-        token_id: tokenId,
-        amount: actualAmount,
-        price: currentPrice,
-        order_type: "sell",
-        status: "pending",
-        buyer_id: accountId,
-      });
-
-      console.log("Order saved:", order);
-
+      const totalValueinHBAR = totalValue * 5;
       // Proceed with sell order
       // TODO: Implement sellAssetToken function in hedera-integration.ts
       const { status } = await sellAssetToken(
@@ -411,22 +372,18 @@ const usdcTokenId = "0.0.429274"; // USDC token ID
         accountId,
         actualAmount,
         signer,
-        {
-          tradingPair,
-          value: totalInTradingPair,
-
-          pricePerToken:
-            tradingPair === "HBAR"
-              ? tokenomics.pricePerTokenUSD * 5
-              : tokenomics.pricePerTokenUSD,
-        }
+        totalValueinHBAR
       );
       if (status === "SUCCESS") {
         // Update order status to completed
-        await supabase
-          .from("orders")
-          .update({ status: "completed" })
-          .eq("id", order.id);
+        await saveOrder({
+          token_id: tokenId,
+          amount: actualAmount,
+          price: currentPrice,
+          order_type: "sell",
+          status: "pending",
+          buyer_id: accountId,
+        });
 
         // Save to trade history
         await saveTrade({
@@ -450,16 +407,8 @@ const usdcTokenId = "0.0.429274"; // USDC token ID
           title: "Success",
           message: `Sell order placed for ${amount} ${tokenSymbol} tokens for ${
             tradingPair === "HBAR" ? "ℏ" : "$"
-          }${totalInTradingPair.toFixed(4)}`,
+          }${totalValueinHBAR.toFixed(4)}`,
         });
-      } else {
-        // Update order status to failed
-        await supabase
-          .from("orders")
-          .update({ status: "failed" })
-          .eq("id", order.id);
-
-        throw new Error(`Transaction failed with status: ${status}`);
       }
     } catch (error: any) {
       console.error("Sell order error:", error);

@@ -6,22 +6,22 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
-} from "./ui/card";
-import { Label } from "./ui/label";
-import { Switch } from "./ui/switch";
-import { Button } from "./ui/button";
-import { Input } from "./ui/input";
+} from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "./ui/select";
-import { Separator } from "./ui/separator";
-import { useTheme } from "../contexts/theme-context";
+} from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
 import { useState } from "react";
 import { Moon, Sun, Monitor, Bell, Shield, Globe, Save } from "lucide-react";
+import { useTheme } from "@/contexts/theme-context";
 
 export function SettingsContent() {
   const { theme, setTheme, actualTheme } = useTheme();

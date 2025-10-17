@@ -1,4 +1,4 @@
-import { SettingsContent } from "../components/SettingsContent";
+import { SettingsContent } from "@/app/settings/SettingsContent";
 import { Navbar } from "../layouts/Navbar";
 
 export function SettingsPage() {
