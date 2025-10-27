@@ -19,7 +19,11 @@ import {
 } from "@/utils/trading";
 import { WalletContext } from "@/contexts/WalletContext";
 import { TradingPanelProps } from "@/utils/assets";
-import { buyAssetToken, sellAssetToken } from "@/utils/hedera-integration";
+import {
+  buyAssetToken,
+  getTokenBalanceByTokenId,
+  sellAssetToken,
+} from "@/utils/hedera-integration";
 import { saveOrder, saveTrade, supabase } from "@/utils/supabase";
 import { useNotification } from "@/contexts/notification-context";
 import { usdcTokenId } from "@/utils";
@@ -29,7 +33,7 @@ export const TradingPanel = ({
   tokenSymbol,
   tokenId, // Add this to your TradingPanelProps interface
 }: TradingPanelProps) => {
-  const { accountId, walletType, evmAddress, signer } =
+  const { accountId, walletType, evmAddress, signer, balance } =
     useContext(WalletContext);
   const [amount, setAmount] = useState<string>("");
   const [price, setPrice] = useState<string>(
@@ -37,7 +41,6 @@ export const TradingPanel = ({
   );
   const [chartData, setChartData] = useState<any[]>([]);
   const [orderBook, setOrderBook] = useState<any>({ asks: [], bids: [] });
-  const [status, setStatus] = useState<string>("");
   const [orders, setOrders] = useState<any[]>([]);
   const [currentPrice, setCurrentPrice] = useState<number>(
     tokenomics.pricePerTokenUSD
@@ -135,100 +138,91 @@ export const TradingPanel = ({
     };
   }, [tokenId, handlePriceUpdate, tokenomics.pricePerTokenUSD, currentPrice]);
 
+  // Refactored: Always check both asset and USDC association if tradingPair is USDC
   const checkTokenAssociation = async (tokenId: string) => {
-    if (!accountId || !tokenId) {
-      showNotification({
-        title: "Error",
-        message: "Please connect your wallet first",
-        variant: "error",
-      });
-      return false;
-    }
-
+    setIsCheckingAssociation(true);
     try {
-      setIsCheckingAssociation(true);
       const tokenManager = new TokenAssociationManager();
+      if (!accountId)
+        return { isAssetAssociated: false, isUsdcAssociated: false };
 
-      // Check association for the asset token
-      const isAssetAssociated = await tokenManager.isTokenAssociated(
+      // Check asset token association
+      let isAssetAssociated = await tokenManager.isTokenAssociated(
         {
           type: walletType === "hedera" ? "hedera" : "evm",
-          accountId: accountId ?? undefined,
+          accountId,
           provider: walletType === "evm" ? window.ethereum : undefined,
-          evmAddress: evmAddress ? evmAddress : undefined,
+          evmAddress: evmAddress || undefined,
         },
         TokenId.fromString(tokenId)
       );
 
-      // If trading in USDC, also check USDC token association
+      // Check USDC association if trading in USDC
       let isUsdcAssociated = true;
       if (tradingPair === "USDC") {
         isUsdcAssociated = await tokenManager.isTokenAssociated(
           {
             type: walletType === "hedera" ? "hedera" : "evm",
-            accountId: accountId ?? undefined,
+            accountId,
             provider: walletType === "evm" ? window.ethereum : undefined,
-            evmAddress: evmAddress ? evmAddress : undefined,
+            evmAddress: evmAddress || undefined,
           },
           TokenId.fromString(usdcTokenId)
         );
       }
 
-      console.log("Token associations:", {
-        isAssetAssociated,
-        isUsdcAssociated,
-      });
-
-      // Associate the asset token if needed
+      // Associate asset token if needed
       if (!isAssetAssociated) {
-        await tokenManager.associateToken(
+        const receipt = await tokenManager.associateToken(
           {
             type: walletType === "hedera" ? "hedera" : "evm",
-            accountId: accountId ?? undefined,
+            accountId,
             signer,
             provider: walletType === "evm" ? window.ethereum : undefined,
-            evmAddress: evmAddress ? evmAddress : undefined,
+            evmAddress: evmAddress || undefined,
             snapEnabled: false,
             network: "testnet",
           },
-          TokenId.fromString(tokenId)
+          tokenId
         );
         showNotification({
           title: "Success",
           message: `Successfully associated with ${tokenSymbol} token`,
           variant: "success",
         });
+        isAssetAssociated = receipt === "SUCCESS";
       }
 
-      // Associate USDC token if needed and trading in USDC
+      // Associate USDC token if needed
       if (tradingPair === "USDC" && !isUsdcAssociated) {
-        await tokenManager.associateToken(
+        const receipt = await tokenManager.associateToken(
           {
             type: walletType === "hedera" ? "hedera" : "evm",
-            accountId: accountId ?? undefined,
+            accountId,
             signer,
             provider: walletType === "evm" ? window.ethereum : undefined,
-            evmAddress: evmAddress ? evmAddress : undefined,
+            evmAddress: evmAddress || undefined,
             snapEnabled: false,
             network: "testnet",
           },
-          TokenId.fromString(usdcTokenId)
+          usdcTokenId
         );
         showNotification({
           title: "Success",
           message: "Successfully associated with USDC token",
           variant: "success",
         });
+        isUsdcAssociated = receipt === "SUCCESS";
       }
 
-      return isAssetAssociated && (tradingPair === "HBAR" || isUsdcAssociated);
+      return { isAssetAssociated, isUsdcAssociated };
     } catch (error: any) {
       showNotification({
         title: "Error",
         message: error.message || "Failed to check token association",
         variant: "error",
       });
-      return false;
+      return { isAssetAssociated: false, isUsdcAssociated: false };
     } finally {
       setIsCheckingAssociation(false);
     }
@@ -243,57 +237,74 @@ export const TradingPanel = ({
       });
       return;
     }
-
+    const tokenBalance = await getTokenBalanceByTokenId(tokenId, accountId);
+    console.log("Token id: ", tokenId, "Token balance: ", tokenBalance);
     try {
       setIsLoading(true);
-
-      // Convert amount to actual tokens (multiply by 100)
       const actualAmount = Number(amount) * 100;
 
-      // Check token association first
-      const isAssociated = await checkTokenAssociation(tokenId);
-      console.log(
-        "Token is associated, proceeding with buy order...",
-        isAssociated
-      );
-      if (!isAssociated || !signer) {
+      // Check both associations
+      const { isAssetAssociated, isUsdcAssociated } =
+        await checkTokenAssociation(tokenId);
+      if (!isAssetAssociated || !signer) {
+        showNotification({
+          title: "Error",
+          message: `Token not associated. Please try again.`,
+          variant: "error",
+        });
         return;
+      }
+      if (tradingPair === "USDC" && !isUsdcAssociated) {
+        showNotification({
+          title: "Error",
+          message: `USDC token not associated. Please try again.`,
+          variant: "error",
+        });
+        return;
+      }
+
+      // Check USDC balance if trading with USDC
+      if (tradingPair === "USDC") {
+        const usdcBalance = await getTokenBalanceByTokenId(
+          usdcTokenId,
+          accountId
+        );
+        const requiredAmount = totalValue * 1_000_000; // Convert to lowest denomination
+        if (Number(usdcBalance) < requiredAmount) {
+          showNotification({
+            title: "Error",
+            message: `Insufficient USDC balance. You need ${(
+              requiredAmount / 1_000_000
+            ).toFixed(2)} USDC`,
+            variant: "error",
+          });
+          return;
+        }
+      } else {
+        if (Number(balance) < totalValue * 5) {
+          showNotification({
+            title: "Error",
+            message: `Insufficient HBAR balance. You need ℏ${(
+              totalValue * 5
+            ).toFixed(2)}`,
+            variant: "error",
+          });
+        }
       }
 
       // Calculate the total value in the selected trading pair
       const totalInTradingPair =
         tradingPair === "HBAR" ? totalValue * 5 : totalValue;
-      if (tradingPair === "USDC") {
-        const isUsdcAssociated = await checkTokenAssociation(usdcTokenId);
-        if (!isUsdcAssociated) {
-          return;
-        }
-        //TODO: check if user has enough USDC balance
-        const { status } = await buyAssetToken(
-          tokenId,
-          accountId,
-          actualAmount,
-          signer,
-          tradingPair,
-          totalInTradingPair // value in usdc
-        );
-        setStatus(status);
-      } else {
-        //TODO: check if user has enough HBAR balance
-        const { status } = await buyAssetToken(
-          tokenId,
-          accountId,
-          actualAmount,
-          signer,
-          tradingPair,
-          totalInTradingPair // value in hbar
-        );
-        setStatus(status);
-      }
-
-      console.log("Buy order status:", status);
+      // TODO: check if user has enough USDC balance if tradingPair === "USDC"
+      const { status } = await buyAssetToken(
+        tokenId,
+        accountId,
+        actualAmount,
+        signer,
+        tradingPair,
+        totalInTradingPair
+      );
       if (status === "SUCCESS") {
-        // Update order status to completed
         await saveOrder({
           token_id: tokenId,
           amount: actualAmount,
@@ -302,8 +313,6 @@ export const TradingPanel = ({
           status: "completed",
           buyer_id: accountId,
         });
-
-        // Save to trade history
         await saveTrade({
           token_id: tokenId,
           price: currentPrice,
@@ -311,17 +320,12 @@ export const TradingPanel = ({
           trade_type: "buy",
           trader_id: accountId,
         });
-
-        // Update token price
-        // TODO: check this functionality later
         const newPrice = await updateTokenPrice(
           tokenId,
           currentPrice,
           actualAmount,
           "buy"
         );
-        console.log("New token price:", newPrice);
-
         showNotification({
           title: "Buy Order",
           message: `Successfully purchased ${amount} ${tokenSymbol} tokens for ${
@@ -354,19 +358,40 @@ export const TradingPanel = ({
 
     try {
       setIsLoading(true);
-
-      // Convert amount to actual tokens (multiply by 100)
       const actualAmount = Number(amount) * 100;
 
-      // Check token association first
-      const isAssociated = await checkTokenAssociation(tokenId);
-      if (!isAssociated || !signer) {
+      // Check both associations
+      const { isAssetAssociated, isUsdcAssociated } =
+        await checkTokenAssociation(tokenId);
+      if (!isAssetAssociated || !signer) {
+        showNotification({
+          title: "Error",
+          message: `Token not associated. Please try again.`,
+          variant: "error",
+        });
+        return;
+      }
+      if (tradingPair === "USDC" && !isUsdcAssociated) {
+        showNotification({
+          title: "Error",
+          message: `USDC token not associated. Please try again.`,
+          variant: "error",
+        });
+        return;
+      }
+
+      // Check if user has enough tokens to sell
+      const tokenBalance = await getTokenBalanceByTokenId(tokenId, accountId);
+      if (Number(tokenBalance) < actualAmount) {
+        showNotification({
+          title: "Error",
+          message: `Insufficient ${tokenSymbol} balance. You need ${amount} ${tokenSymbol}`,
+          variant: "error",
+        });
         return;
       }
 
       const totalValueinHBAR = totalValue * 5;
-      // Proceed with sell order
-      // TODO: Implement sellAssetToken function in hedera-integration.ts
       const { status } = await sellAssetToken(
         tokenId,
         accountId,
@@ -375,7 +400,6 @@ export const TradingPanel = ({
         totalValueinHBAR
       );
       if (status === "SUCCESS") {
-        // Update order status to completed
         await saveOrder({
           token_id: tokenId,
           amount: actualAmount,
@@ -384,8 +408,6 @@ export const TradingPanel = ({
           status: "pending",
           buyer_id: accountId,
         });
-
-        // Save to trade history
         await saveTrade({
           token_id: tokenId,
           price: currentPrice,
@@ -393,16 +415,12 @@ export const TradingPanel = ({
           trade_type: "sell",
           trader_id: accountId,
         });
-
-        // Update token price
         const newPrice = await updateTokenPrice(
           tokenId,
           currentPrice,
           actualAmount,
           "sell"
         );
-        console.log("New token price:", newPrice);
-
         showNotification({
           title: "Success",
           message: `Sell order placed for ${amount} ${tokenSymbol} tokens for ${

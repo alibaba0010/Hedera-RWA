@@ -32,7 +32,6 @@ export async function initializeHederaClient(): Promise<{
     const treasuryKey = PrivateKey.fromStringED25519(
       getEnv("VITE_PUBLIC_TREASURY_DER_PRIVATE_KEY")
     );
-    console.log("Treasury: ", treasuryId, treasuryKey);
     if (!treasuryId || !treasuryKey) {
       throw new Error(
         "Missing Hedera environment variables: VITE_PUBLIC_TREASURY_ACCOUNT_ID or VITE_PUBLIC_TREASURY_HEX_PRIVATE_KEY"
@@ -75,7 +74,6 @@ export async function createHederaToken({
       .setAccountId(treasuryId)
       .execute(client);
     const userPublicKey = accountInfo.key;
-    console.log("Max supply: ", maxSupply);
     // Determine max supply based on supply type
     const tokenMaxSupply = supplyType === "FINITE" ? maxSupply : 10_000_000;
     if (!tokenMaxSupply) return "Supply should be greater than 0";
@@ -98,15 +96,11 @@ export async function createHederaToken({
       .setMaxTransactionFee(new Hbar(20))
       .freezeWithSigner(signer);
 
-    console.log("Token Create Transaction:", tokenCreateTx);
-
     // Sign the transaction with the treasury key
     const tokenCreateSign = await tokenCreateTx.sign(treasuryKey);
-    console.log("Token Create Signed:", tokenCreateSign);
 
     // Execute the transaction
     const tokenCreateSubmit = await tokenCreateSign.executeWithSigner(signer);
-    console.log("Token Create submit: ", tokenCreateSubmit);
 
     // Get the transaction receipt
     const tokenCreateRx = await tokenCreateSubmit.getReceipt(client);
@@ -128,14 +122,12 @@ export async function createHederaToken({
       const transferSign = await transferTx.sign(treasuryKey);
       const transferSubmit = await transferSign.execute(client);
       await transferSubmit.getReceipt(client);
-      console.log(`✅ Transferred initial supply to ${accountId}`);
     }
 
     if (!tokenId) {
       throw new Error("Token creation failed: No token ID returned");
     }
 
-    console.log(`✅ Created token with ID: ${tokenId.toString()}`);
     return tokenId.toString();
   } catch (error: any) {
     console.error("❌ Error creating Hedera token:", error);
@@ -253,7 +245,6 @@ export async function checkTokenAssocationMirrorNode(
   accountId: string
 ): Promise<boolean> {
   try {
-    console.log("Checking token association for:", tokenId, accountId);
     // First check if the account exists and get its tokens
     const accountUrl = `https://testnet.mirrornode.hedera.com/api/v1/accounts/${accountId}/tokens?limit=100`;
     const accountResponse = await fetch(accountUrl);
@@ -268,7 +259,7 @@ export async function checkTokenAssocationMirrorNode(
     }
 
     const accountData = await accountResponse.json();
-    console.log("Account Data from Mirror Node:", accountData);
+
     // Check if the token is in the account's token list
     if (accountData.tokens) {
       // Find the specific token in the account's token relationships
@@ -295,6 +286,7 @@ export const buyAssetToken = async (
   value: number
 ): Promise<{ status: string; receipt: any }> => {
   try {
+    console.log("Buy Asset Token ", tradingPair, value);
     const { client, treasuryId, treasuryKey } = await initializeHederaClient();
     // Handle payment based on trading pair
     if (tradingPair === "HBAR") {
@@ -304,11 +296,8 @@ export const buyAssetToken = async (
         .addHbarTransfer(treasuryId, hbarAmount) // Add HBAR to treasury
         .freezeWith(client)
         .sign(treasuryKey);
-      console.log("Deduct HBAR Transaction:", deductHbarTx);
       const deductHbarSubmit = await deductHbarTx.executeWithSigner(signer);
-      console.log("Deduct HBAR Submit:", deductHbarSubmit);
       const deductHbarRx = await deductHbarSubmit.getReceipt(client);
-      console.log("Deduct HBAR Receipt:", deductHbarRx);
 
       if (deductHbarRx.status.toString() !== "SUCCESS") {
         throw new Error(
@@ -319,14 +308,15 @@ export const buyAssetToken = async (
     } else {
       // For USDC trading pair
       const usdcAmount = value * 1_000_000; // Convert to lowest denomination
-      console.log("USDC Amount to transfer:", usdcAmount);
       const usdcTransferTx = await new TransferTransaction()
         .addTokenTransfer(usdcTokenId, accountId, -usdcAmount) // Deduct USDC from buyer
         .addTokenTransfer(usdcTokenId, treasuryId, usdcAmount) // Add USDC to treasury
         .freezeWith(client);
 
       const usdcTransferSign = await usdcTransferTx.sign(treasuryKey);
-      const usdcTransferSubmit = await usdcTransferSign.executeWithSigner(signer);
+      const usdcTransferSubmit = await usdcTransferSign.executeWithSigner(
+        signer
+      );
       const usdcTransferRx = await usdcTransferSubmit.getReceipt(client);
 
       if (usdcTransferRx.status.toString() !== "SUCCESS") {
@@ -343,7 +333,6 @@ export const buyAssetToken = async (
       .addTokenTransfer(tokenId, accountId, amount) // Add to buyer
       .freezeWith(client)
       .signWithSigner(signer);
-    console.log("Token Transfer Transaction:", tokenTransferTx);
     // Execute the transaction
     const tokenTransferSubmit = await tokenTransferTx.execute(client);
     const tokenTransferRx = await tokenTransferSubmit.getReceipt(client);
@@ -422,32 +411,19 @@ export const sellAssetToken = async (
 };
 
 // TODO: Get the available tokens available on treasury account
-export const getTokenBalanceByTokenId = async (tokenId: string) => {
+export const getTokenBalanceByTokenId = async (
+  tokenId: string,
+  accountId: string
+) => {
   // get hbar balance from treasury account
-
-  const { client, treasuryId } = await initializeHederaClient();
+  const { client } = await initializeHederaClient();
 
   const accountInfo = await new AccountInfoQuery()
-    .setAccountId(treasuryId)
+    .setAccountId(accountId)
     .execute(client);
-  const hbarBalance = accountInfo.balance.toString();
-  console.log("Hbar Balance: ", hbarBalance);
   const tokenBalance = accountInfo.tokenRelationships.get(tokenId);
   if (!tokenBalance) {
     throw new Error(`No token relationship found for token ID: ${tokenId}`);
   }
-  return tokenBalance.balance;
+  return tokenBalance.balance.toString();
 };
-
-export async function createTopic() {
-  const { client } = await initializeHederaClient();
-  const tx = new TopicCreateTransaction().setTopicMemo("Asset Registry");
-  const submit = await tx.execute(client);
-  const receipt = await submit.getReceipt(client);
-  if (!receipt.topicId) {
-    throw new Error("Failed to create topic: topicId is null");
-  }
-  const topicId = receipt.topicId.toString();
-  console.log("New Topic ID:", topicId);
-  return topicId;
-}
