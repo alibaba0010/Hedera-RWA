@@ -1,5 +1,5 @@
-import { Navbar } from "@/components/navbar"
-import { PortfolioContent } from "@/components/portfolio-content"
+import { PortfolioContent } from "@/components/Portfolio/PortfolioContent";
+import { Navbar } from "@/layouts/Navbar";
 
 export default function PortfolioPage() {
   return (
@@ -9,5 +9,5 @@ export default function PortfolioPage() {
         <PortfolioContent />
       </main>
     </div>
-  )
+  );
 }

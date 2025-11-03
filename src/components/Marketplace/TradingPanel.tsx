@@ -26,6 +26,7 @@ import {
 } from "@/utils/hedera-integration";
 import { saveOrder, saveTrade, supabase } from "@/utils/supabase";
 import { useNotification } from "@/contexts/notification-context";
+import { LimitOrder } from "./LimitOrder";
 import { usdcTokenId } from "@/utils";
 
 export const TradingPanel = ({
@@ -538,26 +539,13 @@ export const TradingPanel = ({
                 </TabsContent>
 
                 <TabsContent value="limit" className="space-y-3 mt-3">
-                  <div className="space-y-2">
-                    <Label className="text-xs text-gray-400">Price</Label>
-                    <Input
-                      type="number"
-                      value={price}
-                      onChange={(e) => setPrice(e.target.value)}
-                      placeholder="0.0000"
-                      className="bg-gray-800 border-gray-700 text-white"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label className="text-xs text-gray-400">Amount</Label>
-                    <Input
-                      type="number"
-                      value={amount}
-                      onChange={(e) => setAmount(e.target.value)}
-                      placeholder="0.00"
-                      className="bg-gray-800 border-gray-700 text-white"
-                    />
-                  </div>
+                  <LimitOrder
+                    tokenId={tokenId}
+                    tokenSymbol={tokenSymbol}
+                    currentPrice={currentPrice}
+                    tokenomics={tokenomics}
+                    tradingPair={tradingPair}
+                  />
                 </TabsContent>
               </Tabs>
 
@@ -571,40 +559,42 @@ export const TradingPanel = ({
                 </div>
               )}
 
-              <div className="grid grid-cols-2 gap-2">
-                <Button
-                  className="bg-green-600 hover:bg-green-700 text-white font-medium"
-                  onClick={handleBuy}
-                  disabled={
-                    !amount ||
-                    Number(amount) <= 0 ||
-                    isLoading ||
-                    isCheckingAssociation
-                  }
-                >
-                  {isLoading
-                    ? "Processing..."
-                    : isCheckingAssociation
-                    ? "Checking..."
-                    : "Buy"}
-                </Button>
-                <Button
-                  className="bg-red-600 hover:bg-red-700 text-white font-medium"
-                  onClick={handleSell}
-                  disabled={
-                    !amount ||
-                    Number(amount) <= 0 ||
-                    isLoading ||
-                    isCheckingAssociation
-                  }
-                >
-                  {isLoading
-                    ? "Processing..."
-                    : isCheckingAssociation
-                    ? "Checking..."
-                    : "Sell"}
-                </Button>
-              </div>
+              {orderType === "market" && (
+                <div className="grid grid-cols-2 gap-2">
+                  <Button
+                    className="bg-green-600 hover:bg-green-700 text-white font-medium"
+                    onClick={handleBuy}
+                    disabled={
+                      !amount ||
+                      Number(amount) <= 0 ||
+                      isLoading ||
+                      isCheckingAssociation
+                    }
+                  >
+                    {isLoading
+                      ? "Processing..."
+                      : isCheckingAssociation
+                      ? "Checking..."
+                      : "Buy"}
+                  </Button>
+                  <Button
+                    className="bg-red-600 hover:bg-red-700 text-white font-medium"
+                    onClick={handleSell}
+                    disabled={
+                      !amount ||
+                      Number(amount) <= 0 ||
+                      isLoading ||
+                      isCheckingAssociation
+                    }
+                  >
+                    {isLoading
+                      ? "Processing..."
+                      : isCheckingAssociation
+                      ? "Checking..."
+                      : "Sell"}
+                  </Button>
+                </div>
+              )}
             </div>
             <div className="space-y-2">
               <h3 className="text-xs font-medium text-gray-400 uppercase">

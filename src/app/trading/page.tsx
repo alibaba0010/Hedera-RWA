@@ -1,5 +1,5 @@
-import { Navbar } from "@/components/navbar"
-import { TradingContent } from "@/components/trading-content"
+import { Navbar } from "@/layouts/Navbar";
+import { TradingContent } from "./TradingContent";
 
 export default function TradingPage() {
   return (
@@ -9,5 +9,5 @@ export default function TradingPage() {
         <TradingContent />
       </main>
     </div>
-  )
+  );
 }

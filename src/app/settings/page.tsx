@@ -1,5 +1,5 @@
-import { Navbar } from "@/components/navbar"
-import { SettingsContent } from "@/components/settings-content"
+import { Navbar } from "@/layouts/Navbar";
+import { SettingsContent } from "./SettingsContent";
 
 export default function SettingsPage() {
   return (
@@ -9,5 +9,5 @@ export default function SettingsPage() {
         <SettingsContent />
       </main>
     </div>
-  )
+  );
 }

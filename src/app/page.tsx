@@ -1,7 +1,7 @@
-import { Navbar } from "@/components/navbar"
-import { HeroSection } from "@/components/hero-section"
-import { AssetGrid } from "@/components/asset-grid"
-import { StatsSection } from "@/components/stats-section"
+import { HeroSection } from "@/layouts/HeroSection";
+import { Navbar } from "@/layouts/Navbar";
+import { StatsSection } from "./trading/StatsSection";
+import { AssetGrid } from "@/layouts/AssetGrid";
 
 export default function HomePage() {
   return (
@@ -13,5 +13,5 @@ export default function HomePage() {
         <AssetGrid />
       </main>
     </div>
-  )
+  );
 }

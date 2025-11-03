@@ -10,9 +10,10 @@ interface OrderBook {
   token_id: string;
   amount: number;
   price: number;
-  order_type: 'buy' | 'sell';
-  status: 'pending' | 'completed' | 'failed';
+  order_type: "buy" | "sell";
+  status: "pending" | "completed" | "failed";
   buyer_id: string;
+  target_price?: number | null;
   created_at?: string;
 }
 
@@ -21,7 +22,7 @@ interface TradeHistory {
   token_id: string;
   price: number;
   volume: number;
-  trade_type: 'buy' | 'sell';
+  trade_type: "buy" | "sell";
   trader_id: string;
   created_at?: string;
 }
@@ -78,31 +79,35 @@ export async function fetchDataFromDatabase() {
   }
   return data;
 }
-export const saveOrder = async (orderData: Omit<OrderBook, 'id' | 'created_at'>) => {
+export const saveOrder = async (
+  orderData: Omit<OrderBook, "id" | "created_at">
+) => {
   const { data, error } = await supabase
-    .from('orders')
+    .from("orders")
     .insert([orderData])
     .select()
     .single();
 
   if (error) {
-    console.error('Error saving order:', error);
-    throw new Error('Failed to save order');
+    console.error("Error saving order:", error);
+    throw new Error("Failed to save order");
   }
 
   return data;
 };
 
-export const saveTrade = async (tradeData: Omit<TradeHistory, 'id' | 'created_at'>) => {
+export const saveTrade = async (
+  tradeData: Omit<TradeHistory, "id" | "created_at">
+) => {
   const { data, error } = await supabase
-    .from('trade_history')
+    .from("trade_history")
     .insert([tradeData])
     .select()
     .single();
 
   if (error) {
-    console.error('Error saving trade:', error);
-    throw new Error('Failed to save trade');
+    console.error("Error saving trade:", error);
+    throw new Error("Failed to save trade");
   }
 
   return data;

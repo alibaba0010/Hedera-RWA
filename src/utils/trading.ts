@@ -48,13 +48,13 @@ class PriceManager {
   private async initializeSupabaseSubscription() {
     // Subscribe to the trade_history table for real-time updates
     this.supabaseSubscription = supabase
-      .channel('trade_history_changes')
+      .channel("trade_history_changes")
       .on(
-        'postgres_changes',
+        "postgres_changes",
         {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'trade_history',
+          event: "INSERT",
+          schema: "public",
+          table: "trade_history",
         },
         (payload) => {
           const trade = payload.new as TokenTrade;
@@ -71,8 +71,11 @@ class PriceManager {
 
   private handlePriceUpdate(update: PriceUpdate) {
     const tokenHistory = this.priceHistory.get(update.tokenId) || [];
-    const lastPrice = tokenHistory.length > 0 ? tokenHistory[tokenHistory.length - 1].price : update.price;
-    
+    const lastPrice =
+      tokenHistory.length > 0
+        ? tokenHistory[tokenHistory.length - 1].price
+        : update.price;
+
     const newDataPoint: ChartDataPoint = {
       time: new Date(update.timestamp).toLocaleTimeString(),
       open: lastPrice,
@@ -99,7 +102,7 @@ class PriceManager {
       this.listeners.set(tokenId, []);
     }
     this.listeners.get(tokenId)?.push(callback);
-    
+
     // Send initial price if available
     const history = this.priceHistory.get(tokenId);
     if (history && history.length > 0) {
@@ -107,7 +110,10 @@ class PriceManager {
     }
   }
 
-  public unsubscribeFromPrice(tokenId: string, callback: (price: number) => void) {
+  public unsubscribeFromPrice(
+    tokenId: string,
+    callback: (price: number) => void
+  ) {
     const tokenListeners = this.listeners.get(tokenId);
     if (tokenListeners) {
       const index = tokenListeners.indexOf(callback);
@@ -118,12 +124,12 @@ class PriceManager {
   }
 
   private notifyListeners(tokenId: string, price: number) {
-    this.listeners.get(tokenId)?.forEach(callback => callback(price));
+    this.listeners.get(tokenId)?.forEach((callback) => callback(price));
   }
 
   public async setInitialPrice(tokenId: string, price: number) {
     this.initialPrices.set(tokenId, price);
-    
+
     // If we don't have any trade history, generate initial data with this price
     if (!this.priceHistory.has(tokenId)) {
       await this.loadTradeHistory(tokenId);
@@ -133,10 +139,10 @@ class PriceManager {
   private async loadTradeHistory(tokenId: string): Promise<void> {
     // Try to load trade history from Supabase
     const { data: trades } = await supabase
-      .from('trade_history')
-      .select('*')
-      .eq('token_id', tokenId)
-      .order('created_at', { ascending: true })
+      .from("trade_history")
+      .select("*")
+      .eq("token_id", tokenId)
+      .order("created_at", { ascending: true })
       .limit(24);
 
     if (trades && trades.length > 0) {
@@ -150,7 +156,7 @@ class PriceManager {
         volume: trade.volume,
         price: trade.price,
       }));
-      
+
       this.priceHistory.set(tokenId, chartData);
     } else {
       // If no trade history, generate initial data using the initial price
@@ -162,11 +168,13 @@ class PriceManager {
     if (!this.priceHistory.has(tokenId)) {
       await this.loadTradeHistory(tokenId);
     }
-    return this.priceHistory.get(tokenId) || this.generateInitialChartData(tokenId);
+    return (
+      this.priceHistory.get(tokenId) || this.generateInitialChartData(tokenId)
+    );
   }
 
   private generateInitialChartData(tokenId: string): ChartDataPoint[] {
-    const data = [];
+    const data: ChartDataPoint[] = [];
     const basePrice = this.initialPrices.get(tokenId) || 100; // Use initial price or default
     let price = basePrice;
 
@@ -174,7 +182,7 @@ class PriceManager {
     for (let i = 0; i < 24; i++) {
       const timestamp = new Date();
       timestamp.setHours(timestamp.getHours() - (23 - i));
-      
+
       data.push({
         time: timestamp.toLocaleTimeString(),
         open: price,
@@ -192,8 +200,8 @@ class PriceManager {
 }
 
 export const generateOrderBook = (currentPrice: number) => {
-  const asks = [];
-  const bids = [];
+  const asks: { price: number; amount: number; total: number }[] = [];
+  const bids: { price: number; amount: number; total: number }[] = [];
 
   for (let i = 0; i < 8; i++) {
     asks.push({
@@ -230,22 +238,22 @@ export const unsubscribeFromPriceUpdates = (
   priceManager.unsubscribeFromPrice(tokenId, callback);
 };
 
-
 export const updateTokenPrice = async (
-  tokenId: string, 
-  previousPrice: number, 
-  tradeAmount: number, 
-  tradeType: 'buy' | 'sell'
+  tokenId: string,
+  previousPrice: number,
+  tradeAmount: number,
+  tradeType: "buy" | "sell"
 ): Promise<number> => {
   // Calculate price impact based on trade size
   // This is a simple implementation - you might want to adjust the formula
   const priceImpact = (tradeAmount / 10000) * 0.01; // 0.01% impact per 10,000 tokens
-  
+
   // Calculate new price
   const priceChange = previousPrice * priceImpact;
-  const newPrice = tradeType === 'buy' 
-    ? previousPrice * (1 + priceImpact)  // Price increases when buying
-    : previousPrice * (1 - priceImpact); // Price decreases when selling
+  const newPrice =
+    tradeType === "buy"
+      ? previousPrice * (1 + priceImpact) // Price increases when buying
+      : previousPrice * (1 - priceImpact); // Price decreases when selling
 
   // Update price manager
   const priceManager = PriceManager.getInstance();
@@ -254,7 +262,10 @@ export const updateTokenPrice = async (
   return newPrice;
 };
 
-export const getTokenChartData = async (tokenId: string, initialPrice: number): Promise<ChartDataPoint[]> => {
+export const getTokenChartData = async (
+  tokenId: string,
+  initialPrice: number
+): Promise<ChartDataPoint[]> => {
   const priceManager = PriceManager.getInstance();
   await priceManager.setInitialPrice(tokenId, initialPrice);
   return priceManager.getChartData(tokenId);
