@@ -8,8 +8,8 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TokenAssociationManager } from "@/utils/token-association";
 import { TokenId } from "@hashgraph/sdk";
-// import { CandlestickChart } from "@/components/ui/candlestick-chart";
 import { Orders } from "./Orders";
+import { TradingChart } from "../Trading/TradingChart";
 import {
   subscribeToPriceUpdates,
   unsubscribeFromPriceUpdates,
@@ -661,21 +661,13 @@ export const TradingPanel = ({
       </Card>
 
       {/* Chart below trading controls */}
-      <Card className="bg-gray-900 border-gray-800 text-white">
-        <div className="p-4">
-          <h3 className="text-sm font-medium text-gray-400 mb-3">
-            Price Chart
-          </h3>
-          {/*
-          <div className="h-[300px] w-full bg-gray-950 rounded-lg">
-            <CandlestickChart
-              data={chartData}
-              basePrice={tokenomics.pricePerTokenUSD}
-            />
-          </div>
-            */}
-        </div>
-      </Card>
+      <TradingChart
+        data={chartData}
+        title={`${tokenSymbol}/USDC Price Chart`}
+        tokenSymbol={tokenSymbol}
+        height={400}
+        onPriceChange={handlePriceUpdate}
+      />
 
       {/* Orders section */}
       <Card>
