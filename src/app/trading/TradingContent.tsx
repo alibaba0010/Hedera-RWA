@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   Card,
   CardContent,
@@ -24,6 +24,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../../components/ui/select";
+
+import {
+  subscribeToPriceUpdates,
+  unsubscribeFromPriceUpdates,
+  getTokenChartData,
+  generateOrderBook,
+} from "@/utils/trading";
+import { supabase, fetchDataFromDatabase } from "@/utils/supabase";
+import { fetchAssetMetadataFromIPFS } from "@/utils/hedera-integration";
 
 const orderBook = {
   bids: [
@@ -81,11 +90,206 @@ const myOrders = [
 ];
 
 export function TradingContent() {
-  const [selectedAsset, setSelectedAsset] = useState("manhattan-apt");
+  const [assets, setAssets] = useState<any[]>([]);
+  const [selectedAsset, setSelectedAsset] = useState<string>("");
   const [orderType, setOrderType] = useState("limit");
   const [side, setSide] = useState("buy");
   const [price, setPrice] = useState("");
   const [quantity, setQuantity] = useState("");
+  const [chartData, setChartData] = useState<any[]>([]);
+  const [liveOrderBook, setLiveOrderBook] = useState<any>({
+    asks: [],
+    bids: [],
+  });
+  const [liveTrades, setLiveTrades] = useState<any[]>([]);
+  const [currentPrice, setCurrentPrice] = useState<number | null>(null);
+
+  // assets will be populated from Supabase/asset_metadata and enriched with IPFS metadata
+  const selectedAssetMeta =
+    assets.find((a) => a.tokenId === selectedAsset) || assets[0] || null;
+
+  // Load available assets (metadataCID + tokenId) from Supabase and fetch IPFS metadata
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadAssets = async () => {
+      try {
+        const rows: any[] = await fetchDataFromDatabase();
+        // rows expected to contain { metadataCID, tokenId, owner, created_at }
+        const enriched: any[] = [];
+
+        for (const row of rows || []) {
+          try {
+            const metadata = await fetchAssetMetadataFromIPFS(row.metadataCID);
+            enriched.push({
+              tokenId: row.tokenId,
+              metadataCID: row.metadataCID,
+              name: metadata.name,
+              symbol:
+                metadata?.tokenConfig?.symbol ||
+                metadata?.symbol ||
+                row.tokenId,
+              initialPrice:
+                metadata?.tokenomics?.pricePerTokenUSD || metadata?.price || 0,
+              rawMetadata: metadata,
+            });
+          } catch (err) {
+            console.warn("Failed to fetch metadata for", row.metadataCID, err);
+            enriched.push({
+              tokenId: row.tokenId,
+              metadataCID: row.metadataCID,
+              name: row.metadataCID,
+              symbol: row.tokenId,
+              initialPrice: 0,
+              rawMetadata: null,
+            });
+          }
+        }
+
+        if (!isMounted) return;
+        setAssets(enriched);
+        if (enriched.length > 0 && !selectedAsset) {
+          setSelectedAsset(enriched[0].tokenId);
+        }
+      } catch (err) {
+        console.error("Failed to load assets from database:", err);
+      }
+    };
+
+    loadAssets();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const fetchRecentTrades = useCallback(async (tokenId: string) => {
+    try {
+      const { data } = await supabase
+        .from("trade_history")
+        .select("price,volume,created_at,trade_type")
+        .eq("token_id", tokenId)
+        .order("created_at", { ascending: false })
+        .limit(10);
+
+      if (data) {
+        const mapped = data.map((t: any) => ({
+          price: Number(t.price),
+          quantity: Number(t.volume),
+          time: new Date(t.created_at).toLocaleTimeString(),
+          type: t.trade_type || "trade",
+        }));
+        setLiveTrades(mapped);
+      }
+    } catch (e) {
+      console.error("Failed to fetch recent trades:", e);
+    }
+  }, []);
+
+  const transformChartPoints = (points: any[]) => {
+    // Ensure time is a unix seconds number for our chart utils compatibility
+    return points.map((point: any) => {
+      let timeSec = 0;
+      if (typeof point.time === "number") timeSec = point.time;
+      else {
+        const parsed = Date.parse(point.time);
+        timeSec = Number.isNaN(parsed)
+          ? Math.floor(Date.now() / 1000)
+          : Math.floor(parsed / 1000);
+      }
+
+      return {
+        time: timeSec,
+        open: Number(point.price),
+        high: Number((point.price * (1 + Math.random() * 0.02)).toFixed(8)),
+        low: Number((point.price * (1 - Math.random() * 0.02)).toFixed(8)),
+        close: Number(point.price),
+        volume: point.volume || 0,
+      };
+    });
+  };
+
+  useEffect(() => {
+    let isMounted = true;
+    const init = async () => {
+      try {
+        if (!selectedAssetMeta) return;
+        const tokenId = selectedAssetMeta.tokenId;
+
+        // Get historical/chart data
+        const data = await getTokenChartData(
+          tokenId,
+          selectedAssetMeta.initialPrice
+        );
+        if (!isMounted) return;
+        setChartData(transformChartPoints(data));
+
+        // initial order book and trades
+        setLiveOrderBook(generateOrderBook(selectedAssetMeta.initialPrice));
+        await fetchRecentTrades(tokenId);
+
+        // Subscribe to realtime price updates
+        subscribeToPriceUpdates(
+          tokenId,
+          (price: number) => {
+            setCurrentPrice(price);
+
+            // append or update last candle
+            setChartData((prev) => {
+              const next = [...prev];
+              const last = next[next.length - 1];
+              const nowSec = Math.floor(Date.now() / 1000);
+
+              if (!last || nowSec - last.time > 60 * 60) {
+                // create new candle
+                next.push({
+                  time: nowSec,
+                  open: price,
+                  high: price * (1 + Math.random() * 0.02),
+                  low: price * (1 - Math.random() * 0.02),
+                  close: price,
+                  volume: Math.floor(Math.random() * 1000),
+                });
+              } else {
+                // update last candle close/high/low
+                last.close = price;
+                last.high = Math.max(last.high, price);
+                last.low = Math.min(last.low, price);
+                last.volume = last.volume + Math.floor(Math.random() * 200);
+              }
+
+              return next.slice(-200);
+            });
+
+            // update order book
+            setLiveOrderBook(generateOrderBook(price));
+
+            // fetch recent trades (best-effort)
+            fetchRecentTrades(tokenId).catch(console.error);
+          },
+          selectedAssetMeta.initialPrice
+        );
+      } catch (error) {
+        console.error("Error initializing trading content:", error);
+      }
+    };
+
+    init();
+
+    return () => {
+      isMounted = false;
+      try {
+        if (selectedAssetMeta?.tokenId) {
+          unsubscribeFromPriceUpdates(
+            selectedAssetMeta.tokenId,
+            (price: number) => {}
+          );
+        }
+      } catch (e) {
+        // ignore
+      }
+    };
+  }, [selectedAsset, selectedAssetMeta, fetchRecentTrades]);
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
@@ -102,13 +306,23 @@ export function TradingContent() {
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="manhattan-apt">
-              Manhattan Luxury Apartment
-            </SelectItem>
-            <SelectItem value="miami-condo">Miami Beach Condo</SelectItem>
-            <SelectItem value="austin-complex">
-              Austin Residential Complex
-            </SelectItem>
+            {assets && assets.length > 0 ? (
+              assets.map((a) => (
+                <SelectItem key={a.tokenId} value={a.tokenId}>
+                  {a.name || a.symbol || a.tokenId}
+                </SelectItem>
+              ))
+            ) : (
+              <>
+                <SelectItem value="manhattan-apt">
+                  Manhattan Luxury Apartment
+                </SelectItem>
+                <SelectItem value="miami-condo">Miami Beach Condo</SelectItem>
+                <SelectItem value="austin-complex">
+                  Austin Residential Complex
+                </SelectItem>
+              </>
+            )}
           </SelectContent>
         </Select>
       </div>
@@ -129,14 +343,26 @@ export function TradingContent() {
                   <span>Total</span>
                 </div>
                 <div className="space-y-1">
-                  {orderBook.asks.reverse().map((ask, index) => (
+                  {(liveOrderBook.asks && liveOrderBook.asks.length > 0
+                    ? liveOrderBook.asks.slice(0, 5).reverse()
+                    : orderBook.asks.slice(0, 5).reverse()
+                  ).map((ask: any, index: number) => (
                     <div
                       key={index}
                       className="flex justify-between text-sm text-red-600"
                     >
                       <span>${ask.price}</span>
-                      <span>{ask.quantity}</span>
-                      <span>${ask.total.toLocaleString()}</span>
+                      <span>
+                        {ask.amount?.toLocaleString
+                          ? ask.amount.toLocaleString()
+                          : ask.quantity}
+                      </span>
+                      <span>
+                        $
+                        {(
+                          (ask.price || 0) * (ask.amount || ask.quantity || 1)
+                        ).toLocaleString()}
+                      </span>
                     </div>
                   ))}
                 </div>
@@ -144,7 +370,14 @@ export function TradingContent() {
 
               {/* Spread */}
               <div className="border-t border-b py-2 text-center">
-                <span className="text-lg font-bold">$248.75</span>
+                <span className="text-lg font-bold">
+                  $
+                  {(
+                    currentPrice ??
+                    selectedAssetMeta?.initialPrice ??
+                    0
+                  ).toFixed(4)}
+                </span>
                 <span className="text-xs text-muted-foreground ml-2">
                   Last Price
                 </span>
@@ -153,14 +386,26 @@ export function TradingContent() {
               {/* Bids */}
               <div>
                 <div className="space-y-1">
-                  {orderBook.bids.map((bid, index) => (
+                  {(liveOrderBook.bids && liveOrderBook.bids.length > 0
+                    ? liveOrderBook.bids.slice(0, 5)
+                    : orderBook.bids.slice(0, 5)
+                  ).map((bid: any, index: number) => (
                     <div
                       key={index}
                       className="flex justify-between text-sm text-green-600"
                     >
                       <span>${bid.price}</span>
-                      <span>{bid.quantity}</span>
-                      <span>${bid.total.toLocaleString()}</span>
+                      <span>
+                        {bid.amount?.toLocaleString
+                          ? bid.amount.toLocaleString()
+                          : bid.quantity}
+                      </span>
+                      <span>
+                        $
+                        {(
+                          (bid.price || 0) * (bid.amount || bid.quantity || 1)
+                        ).toLocaleString()}
+                      </span>
                     </div>
                   ))}
                 </div>
@@ -322,7 +567,10 @@ export function TradingContent() {
                 <span>Quantity</span>
                 <span>Time</span>
               </div>
-              {recentTrades.map((trade, index) => (
+              {(liveTrades && liveTrades.length > 0
+                ? liveTrades
+                : recentTrades
+              ).map((trade, index) => (
                 <div key={index} className="flex justify-between text-sm">
                   <span
                     className={
