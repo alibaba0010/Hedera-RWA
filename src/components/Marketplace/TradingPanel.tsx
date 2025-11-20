@@ -126,6 +126,31 @@ export const TradingPanel = ({
     const orders = generateOrderBook(currentPrice);
     setOrderBook(orders);
 
+    // Subscribe to real-time order changes
+    const ordersSubscription = supabase
+      .channel(`orders_${tokenId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "orders",
+          filter: `token_id=eq.${tokenId}`,
+        },
+        (payload) => {
+          // Re-fetch orders on any change
+          supabase
+            .from("orders")
+            .select("*")
+            .eq("token_id", tokenId)
+            .order("created_at", { ascending: false })
+            .then(({ data: updatedOrders }) => {
+              setOrders(updatedOrders || []);
+            });
+        }
+      )
+      .subscribe();
+
     // Subscribe to price updates
     subscribeToPriceUpdates(
       tokenId,
@@ -133,8 +158,9 @@ export const TradingPanel = ({
       tokenomics.pricePerTokenUSD
     );
 
-    // Cleanup subscription on unmount
+    // Cleanup subscriptions on unmount
     return () => {
+      supabase.removeChannel(ordersSubscription);
       unsubscribeFromPriceUpdates(tokenId, handlePriceUpdate);
     };
   }, [tokenId, handlePriceUpdate, tokenomics.pricePerTokenUSD, currentPrice]);

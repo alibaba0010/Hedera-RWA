@@ -154,6 +154,7 @@ export function Orders({ orders, tokenSymbol }: OrdersProps) {
                 <TableHead className="text-gray-400">Total</TableHead>
                 <TableHead className="text-gray-400">Status</TableHead>
                 <TableHead className="text-gray-400">Buyer ID</TableHead>
+                <TableHead className="text-gray-400">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -180,7 +181,7 @@ export function Orders({ orders, tokenSymbol }: OrdersProps) {
                     {order.amount / 100} {tokenSymbol}
                   </TableCell>
                   <TableCell className="text-gray-300">
-                    ${((order.price * order.amount)/100).toFixed(2)}
+                    ${((order.price * order.amount) / 100).toFixed(2)}
                   </TableCell>
                   <TableCell>
                     <Badge
@@ -197,6 +198,17 @@ export function Orders({ orders, tokenSymbol }: OrdersProps) {
                   </TableCell>
                   <TableCell className="text-gray-300 font-mono">
                     {order.buyer_id}
+                  </TableCell>
+                  <TableCell>
+                    {order.status === "pending" && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="text-red-400 border-red-400 hover:bg-red-900/20"
+                      >
+                        Cancel
+                      </Button>
+                    )}
                   </TableCell>
                 </TableRow>
               ))}

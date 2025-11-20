@@ -427,3 +427,37 @@ export const getTokenBalanceByTokenId = async (
   }
   return tokenBalance.balance.toString();
 };
+
+// mint nft function
+export const mintNft = async (
+  tokenId: string,
+  metadata: Uint8Array[],
+  accountId: string,
+  signer: DAppSigner
+): Promise<string[]> => {
+  try {
+    const { client, treasuryKey } = await initializeHederaClient();
+
+    const serialNumbers: string[] = [];
+
+    for (const data of metadata) {
+      const mintTx = await (
+        await new TransferTransaction()
+          .addTokenTransfer(tokenId, accountId, 1)
+          .freezeWith(client)
+          .sign(treasuryKey)
+      ).executeWithSigner(signer);
+
+      const mintRx = await mintTx.getReceipt(client);
+      if (mintRx.status.toString() !== "SUCCESS") {
+        throw new Error(`Minting failed with status: ${mintRx.status}`);
+      }
+      serialNumbers.push(mintRx.serials![0].toString());
+    }
+
+    return serialNumbers;
+  } catch (error: any) {
+    console.error("Error minting NFT:", error);
+    throw new Error(`Failed to mint NFT: ${error.message}`);
+  }
+};

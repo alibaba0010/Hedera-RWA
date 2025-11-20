@@ -103,6 +103,7 @@ export function TradingContent() {
   });
   const [liveTrades, setLiveTrades] = useState<any[]>([]);
   const [currentPrice, setCurrentPrice] = useState<number | null>(null);
+  const [orders, setOrders] = useState<any[]>([]);
 
   // assets will be populated from Supabase/asset_metadata and enriched with IPFS metadata
   const selectedAssetMeta =
@@ -290,6 +291,77 @@ export function TradingContent() {
       }
     };
   }, [selectedAsset, selectedAssetMeta, fetchRecentTrades]);
+
+  // Fetch orders for selected asset from Supabase and subscribe to realtime updates
+  useEffect(() => {
+    let isMounted = true;
+    if (!selectedAssetMeta?.tokenId) return;
+
+    const tokenId = selectedAssetMeta.tokenId;
+
+    const fetchOrders = async () => {
+      try {
+        const { data } = await supabase
+          .from("orders")
+          .select("*")
+          .eq("token_id", tokenId)
+          .order("created_at", { ascending: false });
+
+        if (!isMounted) return;
+        setOrders(data || []);
+      } catch (e) {
+        console.error("Failed to fetch orders:", e);
+      }
+    };
+
+    fetchOrders();
+
+    const channel = supabase
+      .channel(`orders_${tokenId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "orders",
+          filter: `token_id=eq.${tokenId}`,
+        },
+        () => {
+          // refresh on any change
+          fetchOrders().catch(console.error);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      isMounted = false;
+      try {
+        supabase.removeChannel(channel);
+      } catch (e) {
+        // ignore
+      }
+    };
+  }, [selectedAssetMeta]);
+
+  const cancelOrder = async (orderId: string | number) => {
+    try {
+      await supabase
+        .from("orders")
+        .update({ status: "cancelled" })
+        .eq("id", orderId);
+      // optimistic refresh
+      if (selectedAssetMeta?.tokenId) {
+        const { data } = await supabase
+          .from("orders")
+          .select("*")
+          .eq("token_id", selectedAssetMeta.tokenId)
+          .order("created_at", { ascending: false });
+        setOrders(data || []);
+      }
+    } catch (e) {
+      console.error("Failed to cancel order:", e);
+    }
+  };
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
@@ -608,43 +680,66 @@ export function TradingContent() {
                 </tr>
               </thead>
               <tbody>
-                {myOrders.map((order) => (
-                  <tr key={order.id} className="border-b">
-                    <td className="py-3">
-                      <Badge
-                        variant={
-                          order.type === "buy" ? "default" : "destructive"
-                        }
-                      >
-                        {order.type.toUpperCase()}
-                      </Badge>
-                    </td>
-                    <td className="py-3">${order.price}</td>
-                    <td className="py-3">{order.quantity}</td>
-                    <td className="py-3">{order.filled}</td>
-                    <td className="py-3">
-                      <Badge
-                        variant={
-                          order.status === "filled"
-                            ? "default"
-                            : order.status === "partial"
-                            ? "secondary"
-                            : "outline"
-                        }
-                      >
-                        {order.status}
-                      </Badge>
-                    </td>
-                    <td className="py-3 text-muted-foreground">{order.time}</td>
-                    <td className="py-3">
-                      {order.status !== "filled" && (
-                        <Button variant="outline" size="sm">
-                          Cancel
-                        </Button>
-                      )}
+                {orders && orders.length > 0 ? (
+                  orders.map((order: any) => (
+                    <tr key={order.id} className="border-b">
+                      <td className="py-3">
+                        <Badge
+                          variant={
+                            order.order_type === "buy"
+                              ? "default"
+                              : "destructive"
+                          }
+                        >
+                          {String(order.order_type || "").toUpperCase()}
+                        </Badge>
+                      </td>
+                      <td className="py-3">
+                        ${Number(order.price).toFixed(4)}
+                      </td>
+                      <td className="py-3">{(order.amount || 0) / 100}</td>
+                      <td className="py-3">{order.filled || 0}</td>
+                      <td className="py-3">
+                        <Badge
+                          variant={
+                            order.status === "completed"
+                              ? "default"
+                              : order.status === "pending"
+                              ? "secondary"
+                              : "outline"
+                          }
+                        >
+                          {String(order.status || "").toUpperCase()}
+                        </Badge>
+                      </td>
+                      <td className="py-3 text-muted-foreground">
+                        {order.created_at
+                          ? new Date(order.created_at).toLocaleString()
+                          : "-"}
+                      </td>
+                      <td className="py-3">
+                        {order.status === "pending" && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => cancelOrder(order.id)}
+                          >
+                            Cancel
+                          </Button>
+                        )}
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td
+                      colSpan={7}
+                      className="py-4 text-center text-muted-foreground"
+                    >
+                      No orders for selected asset.
                     </td>
                   </tr>
-                ))}
+                )}
               </tbody>
             </table>
           </div>
