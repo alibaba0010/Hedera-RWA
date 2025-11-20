@@ -7,11 +7,14 @@ import {
   Building,
   Calendar,
   ArrowUpRight,
+  Wallet,
 } from "lucide-react";
 // import { AssetDetail } from "../components/asset-detail";
 import { useNavigate } from "react-router-dom";
 import { WalletContext } from "@/contexts/WalletContext";
-import { useContext } from "react";
+import { useContext, useEffect, useState } from "react";
+import { fetchDataFromDatabase } from "@/utils/supabase";
+import { AssetMetadata } from "@/utils/assets";
 
 const portfolioData = {
   totalValue: "$45,230.50",
@@ -22,49 +25,170 @@ const portfolioData = {
   tokens: 15420,
 };
 
-const holdings = [
-  {
-    id: 1,
-    name: "Manhattan Luxury Apartment",
-    location: "New York, NY",
-    tokens: 2500,
-    value: "$15,750.00",
-    gain: "+$1,250.00",
-    gainPercent: "+8.6%",
-    yield: "7.2%",
-    lastDividend: "$180.00",
-    nextDividend: "2024-02-15",
-  },
-  {
-    id: 2,
-    name: "Miami Beach Condo",
-    location: "Miami, FL",
-    tokens: 1800,
-    value: "$12,420.00",
-    gain: "+$920.00",
-    gainPercent: "+8.0%",
-    yield: "8.5%",
-    lastDividend: "$153.00",
-    nextDividend: "2024-02-20",
-  },
-  {
-    id: 3,
-    name: "Austin Residential Complex",
-    location: "Austin, TX",
-    tokens: 3200,
-    value: "$17,060.50",
-    gain: "+$1,250.75",
-    gainPercent: "+7.9%",
-    yield: "9.1%",
-    lastDividend: "$291.20",
-    nextDividend: "2024-02-10",
-  },
-];
+interface HoldingData {
+  id: string;
+  name: string;
+  location: string;
+  tokens: number;
+  value: string;
+  gain: string;
+  gainPercent: string;
+  yield: string;
+  lastDividend: string;
+  nextDividend: string;
+  metadata?: AssetMetadata;
+}
 
 export function PortfolioContent() {
-  const { accountId } = useContext(WalletContext);
-
+  const { accountId, connectWallet } = useContext(WalletContext);
   const navigate = useNavigate();
+  const [loadingAssets, setLoadingAssets] = useState(false);
+  const [portfolioHoldings, setPortfolioHoldings] = useState<HoldingData[]>([]);
+  const [calculatedPortfolioData, setCalculatedPortfolioData] =
+    useState(portfolioData);
+
+  useEffect(() => {
+    if (accountId) {
+      loadPortfolioData();
+    }
+  }, [accountId]);
+
+  const loadPortfolioData = async () => {
+    try {
+      setLoadingAssets(true);
+      const assets = await fetchDataFromDatabase();
+
+      if (assets && Array.isArray(assets)) {
+        // Transform assets into holdings format
+        const transformedHoldings: HoldingData[] = assets
+          .filter((asset: any) => asset.owner === accountId)
+          .map((asset: any, index: number) => {
+            const metadata = asset.metadata || {};
+            const tokenomics = metadata.tokenomics || {};
+            const location = metadata.location || {};
+
+            return {
+              id: asset.tokenId || asset.id || `asset-${index}`,
+              name: metadata.name || "Unknown Asset",
+              location: `${location.city || "City"}, ${
+                location.state || "State"
+              }`,
+              tokens: tokenomics.tokenSupply || 0,
+              value: `$${(tokenomics.assetValue || 0).toLocaleString("en-US", {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}`,
+              gain: `+$${(tokenomics.projectedIncome || 0).toLocaleString(
+                "en-US",
+                {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                }
+              )}`,
+              gainPercent: "+8.0%", // Can be calculated from actual data
+              yield: `${(tokenomics.dividendYield || 0).toFixed(1)}%`,
+              lastDividend: `$${(
+                (tokenomics.annualIncome || 0) / 12
+              ).toLocaleString("en-US", {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}`,
+              nextDividend: tokenomics.nextPayout || "2024-02-15",
+              metadata,
+            };
+          });
+
+        setPortfolioHoldings(transformedHoldings);
+
+        // Calculate portfolio totals
+        const totalValue = transformedHoldings.reduce(
+          (sum, holding) =>
+            sum + parseFloat(holding.value.replace(/[$,]/g, "")),
+          0
+        );
+        const totalIncome = transformedHoldings.reduce(
+          (sum, holding) =>
+            sum + parseFloat(holding.lastDividend.replace(/[$,]/g, "")),
+          0
+        );
+        const averageYield =
+          transformedHoldings.length > 0
+            ? (
+                transformedHoldings.reduce(
+                  (sum, holding) =>
+                    sum + parseFloat(holding.yield.replace("%", "")),
+                  0
+                ) / transformedHoldings.length
+              ).toFixed(1)
+            : "0.0";
+
+        setCalculatedPortfolioData({
+          totalValue: `$${totalValue.toLocaleString("en-US", {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })}`,
+          totalGain: `+$${(totalValue * 0.08).toLocaleString("en-US", {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })}`,
+          gainPercentage: "+8.2%",
+          monthlyIncome: `$${(totalIncome * 12).toLocaleString("en-US", {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })}`,
+          properties: transformedHoldings.length,
+          tokens: transformedHoldings.reduce((sum, h) => sum + h.tokens, 0),
+        });
+      }
+    } catch (error) {
+      console.error("Error loading portfolio data:", error);
+    } finally {
+      setLoadingAssets(false);
+    }
+  };
+
+  if (!accountId) {
+    return (
+      <div className="max-w-7xl mx-auto space-y-8">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold">Portfolio</h1>
+            <p className="text-muted-foreground mt-2">
+              Track your real estate investments and earnings
+            </p>
+          </div>
+        </div>
+
+        {/* Connect Wallet Overlay */}
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 backdrop-blur-sm">
+          <Card className="w-full max-w-md">
+            <CardHeader className="text-center">
+              <div className="flex justify-center mb-4">
+                <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center">
+                  <Wallet className="h-8 w-8 text-primary" />
+                </div>
+              </div>
+              <CardTitle className="text-2xl">Connect Your Wallet</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4 text-center">
+              <p className="text-muted-foreground">
+                Connect your wallet to view your portfolio, track investments,
+                and manage your real estate tokens.
+              </p>
+              <Button
+                onClick={connectWallet}
+                className="w-full h-12 text-base"
+                size="lg"
+              >
+                <Wallet className="h-5 w-5 mr-2" />
+                Connect Wallet
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-7xl mx-auto space-y-8">
@@ -75,13 +199,13 @@ export function PortfolioContent() {
             Track your real estate investments and earnings
           </p>
         </div>
-        {!accountId ? (
-          ""
-        ) : (
-          <Button onClick={() => navigate("/add-asset")} variant="default" className="pointer">
-            + Add Asset
-          </Button>
-        )}
+        <Button
+          onClick={() => navigate("/add-asset")}
+          variant="default"
+          className="pointer"
+        >
+          + Add Asset
+        </Button>
       </div>
 
       {/* Portfolio Overview */}
@@ -94,10 +218,13 @@ export function PortfolioContent() {
             <DollarSign className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{portfolioData.totalValue}</div>
+            <div className="text-2xl font-bold">
+              {calculatedPortfolioData.totalValue}
+            </div>
             <div className="flex items-center text-sm text-green-600">
               <TrendingUp className="h-4 w-4 mr-1" />
-              {portfolioData.totalGain} ({portfolioData.gainPercentage})
+              {calculatedPortfolioData.totalGain} (
+              {calculatedPortfolioData.gainPercentage})
             </div>
           </CardContent>
         </Card>
@@ -111,7 +238,7 @@ export function PortfolioContent() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {portfolioData.monthlyIncome}
+              {calculatedPortfolioData.monthlyIncome}
             </div>
             <p className="text-xs text-muted-foreground">
               From dividend payments
@@ -127,9 +254,11 @@ export function PortfolioContent() {
             <Building className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{portfolioData.properties}</div>
+            <div className="text-2xl font-bold">
+              {calculatedPortfolioData.properties}
+            </div>
             <p className="text-xs text-muted-foreground">
-              Across {portfolioData.tokens.toLocaleString()} tokens
+              Across {calculatedPortfolioData.tokens.toLocaleString()} tokens
             </p>
           </CardContent>
         </Card>
@@ -154,106 +283,125 @@ export function PortfolioContent() {
           <CardTitle>Your Holdings</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="space-y-6">
-            {holdings.map((holding) => (
-              <div
-                key={holding.id}
-                className="flex items-center justify-between p-4 border rounded-lg"
-              >
-                <div className="flex-1">
-                  <div className="flex items-center gap-3 mb-2">
-                    <div className="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center">
-                      <Building className="h-6 w-6 text-primary" />
+          {loadingAssets ? (
+            <div className="flex items-center justify-center py-8">
+              <p className="text-muted-foreground">Loading your holdings...</p>
+            </div>
+          ) : portfolioHoldings.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-8 text-center">
+              <Building className="h-12 w-12 text-muted-foreground mb-4" />
+              <p className="text-muted-foreground">No holdings yet</p>
+              <p className="text-sm text-muted-foreground mb-4">
+                Start by adding your first real estate asset
+              </p>
+              <Button onClick={() => navigate("/add-asset")} variant="default">
+                + Add Your First Asset
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {portfolioHoldings.map((holding) => (
+                <div
+                  key={holding.id}
+                  className="flex items-center justify-between p-4 border rounded-lg"
+                >
+                  <div className="flex-1">
+                    <div className="flex items-center gap-3 mb-2">
+                      <div className="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center">
+                        <Building className="h-6 w-6 text-primary" />
+                      </div>
+                      <div>
+                        <h3 className="font-semibold">{holding.name}</h3>
+                        <p className="text-sm text-muted-foreground">
+                          {holding.location}
+                        </p>
+                      </div>
                     </div>
-                    <div>
-                      <h3 className="font-semibold">{holding.name}</h3>
-                      <p className="text-sm text-muted-foreground">
-                        {holding.location}
-                      </p>
+
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
+                      <div>
+                        <p className="text-xs text-muted-foreground">
+                          Tokens Owned
+                        </p>
+                        <p className="font-medium">
+                          {holding.tokens.toLocaleString()}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">
+                          Current Value
+                        </p>
+                        <p className="font-medium">{holding.value}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">
+                          Total Gain
+                        </p>
+                        <p className="font-medium text-green-600">
+                          {holding.gain}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">Yield</p>
+                        <Badge variant="secondary">{holding.yield}</Badge>
+                      </div>
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
-                    <div>
-                      <p className="text-xs text-muted-foreground">
-                        Tokens Owned
-                      </p>
-                      <p className="font-medium">
-                        {holding.tokens.toLocaleString()}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground">
-                        Current Value
-                      </p>
-                      <p className="font-medium">{holding.value}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground">
-                        Total Gain
-                      </p>
-                      <p className="font-medium text-green-600">
-                        {holding.gain}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground">Yield</p>
-                      <Badge variant="secondary">{holding.yield}</Badge>
-                    </div>
+                  <div className="flex flex-col items-end gap-2">
+                    <Badge variant="outline" className="text-green-600">
+                      {holding.gainPercent}
+                    </Badge>
+                    <Button variant="outline" size="sm">
+                      <ArrowUpRight className="h-4 w-4 mr-1" />
+                      Trade
+                    </Button>
                   </div>
                 </div>
-
-                <div className="flex flex-col items-end gap-2">
-                  <Badge variant="outline" className="text-green-600">
-                    {holding.gainPercent}
-                  </Badge>
-                  <Button variant="outline" size="sm">
-                    <ArrowUpRight className="h-4 w-4 mr-1" />
-                    Trade
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
 
       {/* Recent Dividends */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Recent Dividend Payments</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            {holdings.map((holding) => (
-              <div
-                key={holding.id}
-                className="flex items-center justify-between p-3 border rounded"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 bg-green-100 dark:bg-green-900/20 rounded-full flex items-center justify-center">
-                    <DollarSign className="h-4 w-4 text-green-600" />
+      {portfolioHoldings.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Recent Dividend Payments</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {portfolioHoldings.map((holding) => (
+                <div
+                  key={holding.id}
+                  className="flex items-center justify-between p-3 border rounded"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 bg-green-100 dark:bg-green-900/20 rounded-full flex items-center justify-center">
+                      <DollarSign className="h-4 w-4 text-green-600" />
+                    </div>
+                    <div>
+                      <p className="font-medium">{holding.name}</p>
+                      <p className="text-sm text-muted-foreground">
+                        Monthly dividend payment
+                      </p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="font-medium">{holding.name}</p>
-                    <p className="text-sm text-muted-foreground">
-                      Monthly dividend payment
+                  <div className="text-right">
+                    <p className="font-medium text-green-600">
+                      {holding.lastDividend}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Next: {holding.nextDividend}
                     </p>
                   </div>
                 </div>
-                <div className="text-right">
-                  <p className="font-medium text-green-600">
-                    {holding.lastDividend}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    Next: {holding.nextDividend}
-                  </p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
