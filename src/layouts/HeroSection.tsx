@@ -12,7 +12,7 @@ export function HeroSection() {
       <div className="container mx-auto px-4">
         <div className="max-w-4xl mx-auto text-center">
           <h1 className="text-4xl lg:text-6xl font-bold mb-6 bg-gradient-to-r from-primary to-blue-600 bg-clip-text text-transparent">
-            Tokenize Real Estate on Hedera
+            Tokenize Real World Asset on Hedera
           </h1>
           <p className="text-xl text-muted-foreground mb-8 max-w-2xl mx-auto">
             Invest in fractional real estate ownership through blockchain

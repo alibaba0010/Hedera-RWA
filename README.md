@@ -10,7 +10,7 @@ A decentralized marketplace for tokenized real estate assets built on the Hedera
 
 The Hedera RWA Marketplace is a full-stack decentralized application that bridges traditional real estate with blockchain technology. Users can:
 
-- **Tokenize Real Estate Assets**: Convert physical properties into divisible, tradeable tokens
+- **Tokenize Real World Assets**: Convert physical properties into divisible, tradeable tokens
 - **Fractional Ownership**: Own shares of premium properties without needing to purchase entire assets
 - **Secondary Market Trading**: Buy and sell real estate tokens in real-time with dynamic pricing
 - **Asset Management**: Access comprehensive asset details, financial metrics, and historical data
