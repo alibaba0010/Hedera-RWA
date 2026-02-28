@@ -1,4 +1,4 @@
-import { TradingContent } from "@/app/trading/TradingContent";
+import { TradingContent } from "@/components/Trading/TradingContent";
 import { Navbar } from "../layouts/Navbar";
 
 export function TradingPage() {

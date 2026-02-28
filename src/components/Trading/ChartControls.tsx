@@ -91,7 +91,15 @@ export const ChartControls = ({
       </div>
 
       {/* Indicators */}
-      <Select>
+      <Select
+        onValueChange={(id) => {
+          if (indicators.includes(id)) {
+            onRemoveIndicator(id);
+          } else {
+            onAddIndicator(id);
+          }
+        }}
+      >
         <SelectTrigger className="w-40 h-8 text-xs bg-gray-700 border-gray-600">
           <SelectValue placeholder="Add Indicator" />
         </SelectTrigger>
@@ -99,22 +107,16 @@ export const ChartControls = ({
           {INDICATORS.map((indicator) => {
             const isAdded = indicators.includes(indicator.id);
             return (
-              <SelectItem
-                key={indicator.id}
-                value={indicator.id}
-                onClick={() =>
-                  isAdded
-                    ? onRemoveIndicator(indicator.id)
-                    : onAddIndicator(indicator.id)
-                }
-              >
+              <SelectItem key={indicator.id} value={indicator.id}>
                 <div className="flex items-center gap-2">
                   <div
                     className="w-2 h-2 rounded-full"
                     style={{ backgroundColor: indicator.color }}
                   />
                   <span>{indicator.label}</span>
-                  {isAdded && <span className="ml-2">✓</span>}
+                  {isAdded && (
+                    <span className="ml-2 text-green-500 font-bold">✓</span>
+                  )}
                 </div>
               </SelectItem>
             );

@@ -7,24 +7,27 @@ import { AddAssetPage } from "./pages/AddAssetPage";
 import Marketplace from "./pages/Marketplace";
 import { AssetDetailsPage } from "./pages/AssetDetailsPage";
 
+import { ErrorBoundary } from "./components/ErrorBoundary";
+
 function App() {
   return (
-    <div className="min-h-screen bg-background transition-colors duration-300">
-      <Routes>
-        <Route path="/" element={<HomePage />} />
-        <Route path="/marketplace" element={<Marketplace />} />
-        <Route
-          path="/marketplace/:metadataCID"
-          element={<AssetDetailsPage />}
-        />
-        <Route path="/portfolio" element={<PortfolioPage />} />
-        <Route path="/trading" element={<TradingPage />} />
-        <Route path="/settings" element={<SettingsPage />} />
-        <Route path="/add-asset" element={<AddAssetPage />} />
-      </Routes>
-    </div>
+    <ErrorBoundary>
+      <div className="min-h-screen bg-background transition-colors duration-300">
+        <Routes>
+          <Route path="/" element={<HomePage />} />
+          <Route path="/marketplace" element={<Marketplace />} />
+          <Route
+            path="/marketplace/:metadataCID"
+            element={<AssetDetailsPage />}
+          />
+          <Route path="/portfolio" element={<PortfolioPage />} />
+          <Route path="/trading" element={<TradingPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/add-asset" element={<AddAssetPage />} />
+        </Routes>
+      </div>
+    </ErrorBoundary>
   );
 }
 
 export default App;
-

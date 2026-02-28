@@ -1,4 +1,4 @@
-import { StatsSection } from "@/app/trading/StatsSection";
+import { StatsSection } from "@/components/Trading/StatsSection";
 import { AssetGrid } from "../layouts/AssetGrid";
 import { HeroSection } from "../layouts/HeroSection";
 import { Navbar } from "../layouts/Navbar";

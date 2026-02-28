@@ -28,3 +28,4 @@ yarn-error.log*
 next-env.d.ts
 bin.ts
 bin.tsx
+dist

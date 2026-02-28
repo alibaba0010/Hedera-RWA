@@ -1,29 +1,19 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "../../components/ui/card";
-import { Button } from "../../components/ui/button";
-import { Input } from "../../components/ui/input";
-import { Label } from "../../components/ui/label";
-import { Badge } from "../../components/ui/badge";
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "../../components/ui/tabs";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "../../components/ui/select";
+} from "@/components/ui/select";
 
 import {
   subscribeToPriceUpdates,
@@ -33,6 +23,7 @@ import {
 } from "@/utils/trading";
 import { supabase, fetchDataFromDatabase } from "@/utils/supabase";
 import { fetchAssetMetadataFromIPFS } from "@/utils/hedera-integration";
+import { TradingChart } from "./TradingChart";
 
 const orderBook = {
   bids: [
@@ -220,7 +211,7 @@ export function TradingContent() {
         // Get historical/chart data
         const data = await getTokenChartData(
           tokenId,
-          selectedAssetMeta.initialPrice
+          selectedAssetMeta.initialPrice,
         );
         if (!isMounted) return;
         setChartData(transformChartPoints(data));
@@ -268,7 +259,7 @@ export function TradingContent() {
             // fetch recent trades (best-effort)
             fetchRecentTrades(tokenId).catch(console.error);
           },
-          selectedAssetMeta.initialPrice
+          selectedAssetMeta.initialPrice,
         );
       } catch (error) {
         console.error("Error initializing trading content:", error);
@@ -283,7 +274,7 @@ export function TradingContent() {
         if (selectedAssetMeta?.tokenId) {
           unsubscribeFromPriceUpdates(
             selectedAssetMeta.tokenId,
-            (price: number) => {}
+            (price: number) => {},
           );
         }
       } catch (e) {
@@ -329,7 +320,7 @@ export function TradingContent() {
         () => {
           // refresh on any change
           fetchOrders().catch(console.error);
-        }
+        },
       )
       .subscribe();
 
@@ -399,265 +390,357 @@ export function TradingContent() {
         </Select>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Order Book */}
-        <Card className="lg:col-span-1">
-          <CardHeader>
-            <CardTitle className="text-lg">Order Book</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {/* Asks */}
-              <div>
-                <div className="flex justify-between text-xs text-muted-foreground mb-2">
-                  <span>Price</span>
-                  <span>Quantity</span>
-                  <span>Total</span>
-                </div>
-                <div className="space-y-1">
-                  {(liveOrderBook.asks && liveOrderBook.asks.length > 0
-                    ? liveOrderBook.asks.slice(0, 5).reverse()
-                    : orderBook.asks.slice(0, 5).reverse()
-                  ).map((ask: any, index: number) => (
-                    <div
-                      key={index}
-                      className="flex justify-between text-sm text-red-600"
-                    >
-                      <span>${ask.price}</span>
-                      <span>
-                        {ask.amount?.toLocaleString
-                          ? ask.amount.toLocaleString()
-                          : ask.quantity}
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+        {/* Main Chart Section */}
+        <div className="lg:col-span-3 space-y-6">
+          <Card>
+            <CardHeader className="pb-0">
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="text-xl">
+                    {selectedAssetMeta?.name || "Select Asset"}
+                  </CardTitle>
+                  {selectedAssetMeta && (
+                    <div className="flex items-center gap-2 mt-1">
+                      <Badge variant="outline">
+                        {selectedAssetMeta.symbol}
+                      </Badge>
+                      <span className="text-xs text-muted-foreground">
+                        {selectedAssetMeta.tokenId}
                       </span>
-                      <span>
-                        $
-                        {(
-                          (ask.price || 0) * (ask.amount || ask.quantity || 1)
-                        ).toLocaleString()}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Spread */}
-              <div className="border-t border-b py-2 text-center">
-                <span className="text-lg font-bold">
-                  $
-                  {(
-                    currentPrice ??
-                    selectedAssetMeta?.initialPrice ??
-                    0
-                  ).toFixed(4)}
-                </span>
-                <span className="text-xs text-muted-foreground ml-2">
-                  Last Price
-                </span>
-              </div>
-
-              {/* Bids */}
-              <div>
-                <div className="space-y-1">
-                  {(liveOrderBook.bids && liveOrderBook.bids.length > 0
-                    ? liveOrderBook.bids.slice(0, 5)
-                    : orderBook.bids.slice(0, 5)
-                  ).map((bid: any, index: number) => (
-                    <div
-                      key={index}
-                      className="flex justify-between text-sm text-green-600"
-                    >
-                      <span>${bid.price}</span>
-                      <span>
-                        {bid.amount?.toLocaleString
-                          ? bid.amount.toLocaleString()
-                          : bid.quantity}
-                      </span>
-                      <span>
-                        $
-                        {(
-                          (bid.price || 0) * (bid.amount || bid.quantity || 1)
-                        ).toLocaleString()}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Trading Interface */}
-        <Card className="lg:col-span-1">
-          <CardHeader>
-            <CardTitle className="text-lg">Place Order</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              <Tabs value={side} onValueChange={setSide}>
-                <TabsList className="grid w-full grid-cols-2">
-                  <TabsTrigger value="buy" className="text-green-600">
-                    Buy
-                  </TabsTrigger>
-                  <TabsTrigger value="sell" className="text-red-600">
-                    Sell
-                  </TabsTrigger>
-                </TabsList>
-
-                <TabsContent value="buy" className="space-y-4">
-                  <div className="space-y-2">
-                    <Label>Order Type</Label>
-                    <Select value={orderType} onValueChange={setOrderType}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="limit">Limit Order</SelectItem>
-                        <SelectItem value="market">Market Order</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {orderType === "limit" && (
-                    <div className="space-y-2">
-                      <Label>Price per Token</Label>
-                      <Input
-                        type="number"
-                        placeholder="0.00"
-                        value={price}
-                        onChange={(e) => setPrice(e.target.value)}
-                      />
                     </div>
                   )}
-
-                  <div className="space-y-2">
-                    <Label>Quantity</Label>
-                    <Input
-                      type="number"
-                      placeholder="0"
-                      value={quantity}
-                      onChange={(e) => setQuantity(e.target.value)}
-                    />
+                </div>
+                <div className="text-right">
+                  <div className="text-2xl font-bold">
+                    $
+                    {(
+                      currentPrice ??
+                      selectedAssetMeta?.initialPrice ??
+                      0
+                    ).toFixed(4)}
                   </div>
+                  <div className="text-xs text-green-600">+2.4% (24h)</div>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="pt-6">
+              <TradingChart
+                data={chartData}
+                tokenSymbol={selectedAssetMeta?.symbol || "TOKEN"}
+                title={`${selectedAssetMeta?.name || "Asset"} Price`}
+                height={500}
+              />
+            </CardContent>
+          </Card>
 
-                  <div className="space-y-2">
-                    <div className="flex justify-between text-sm">
-                      <span>Total Cost:</span>
-                      <span className="font-medium">
-                        $
-                        {price && quantity
-                          ? (
-                              Number.parseFloat(price) *
-                              Number.parseFloat(quantity)
-                            ).toFixed(2)
-                          : "0.00"}
-                      </span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span>Available Balance:</span>
-                      <span>1,234.56 HBAR</span>
-                    </div>
-                  </div>
+          {/* My Orders Moved Here for better flow in 3-column layout */}
+          <Card>
+            <CardHeader>
+              <CardTitle>My Orders</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b">
+                      <th className="text-left py-2">Type</th>
+                      <th className="text-left py-2">Price</th>
+                      <th className="text-left py-2">Quantity</th>
+                      <th className="text-left py-2">Filled</th>
+                      <th className="text-left py-2">Status</th>
+                      <th className="text-left py-2">Time</th>
+                      <th className="text-left py-2">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {orders && orders.length > 0 ? (
+                      orders.map((order: any) => (
+                        <tr key={order.id} className="border-b">
+                          <td className="py-3">
+                            <Badge
+                              variant={
+                                order.order_type === "buy"
+                                  ? "default"
+                                  : "destructive"
+                              }
+                            >
+                              {String(order.order_type || "").toUpperCase()}
+                            </Badge>
+                          </td>
+                          <td className="py-3">
+                            ${Number(order.price).toFixed(4)}
+                          </td>
+                          <td className="py-3">{(order.amount || 0) / 100}</td>
+                          <td className="py-3">{order.filled || 0}</td>
+                          <td className="py-3">
+                            <Badge
+                              variant={
+                                order.status === "completed"
+                                  ? "default"
+                                  : order.status === "pending"
+                                    ? "secondary"
+                                    : "outline"
+                              }
+                            >
+                              {String(order.status || "").toUpperCase()}
+                            </Badge>
+                          </td>
+                          <td className="py-3 text-muted-foreground">
+                            {order.created_at
+                              ? new Date(order.created_at).toLocaleString()
+                              : "-"}
+                          </td>
+                          <td className="py-3">
+                            {order.status === "pending" && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => cancelOrder(order.id)}
+                              >
+                                Cancel
+                              </Button>
+                            )}
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td
+                          colSpan={7}
+                          className="py-4 text-center text-muted-foreground"
+                        >
+                          No orders for selected asset.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
 
-                  <Button className="w-full bg-green-600 hover:bg-green-700">
-                    Place Buy Order
-                  </Button>
-                </TabsContent>
+        {/* Sidebar: Order Book & Trading Interface */}
+        <div className="lg:col-span-1 space-y-6">
+          {/* Trading Interface */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Place Order</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <Tabs value={side} onValueChange={setSide}>
+                  <TabsList className="grid w-full grid-cols-2">
+                    <TabsTrigger value="buy" className="text-green-600">
+                      Buy
+                    </TabsTrigger>
+                    <TabsTrigger value="sell" className="text-red-600">
+                      Sell
+                    </TabsTrigger>
+                  </TabsList>
 
-                <TabsContent value="sell" className="space-y-4">
-                  <div className="space-y-2">
-                    <Label>Order Type</Label>
-                    <Select value={orderType} onValueChange={setOrderType}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="limit">Limit Order</SelectItem>
-                        <SelectItem value="market">Market Order</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {orderType === "limit" && (
+                  <TabsContent value="buy" className="space-y-4">
                     <div className="space-y-2">
-                      <Label>Price per Token</Label>
+                      <Label>Order Type</Label>
+                      <Select value={orderType} onValueChange={setOrderType}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="limit">Limit Order</SelectItem>
+                          <SelectItem value="market">Market Order</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {orderType === "limit" && (
+                      <div className="space-y-2">
+                        <Label>Price per Token</Label>
+                        <Input
+                          type="number"
+                          placeholder="0.00"
+                          value={price}
+                          onChange={(e) => setPrice(e.target.value)}
+                        />
+                      </div>
+                    )}
+
+                    <div className="space-y-2">
+                      <Label>Quantity</Label>
                       <Input
                         type="number"
-                        placeholder="0.00"
-                        value={price}
-                        onChange={(e) => setPrice(e.target.value)}
+                        placeholder="0"
+                        value={quantity}
+                        onChange={(e) => setQuantity(e.target.value)}
                       />
                     </div>
-                  )}
 
-                  <div className="space-y-2">
-                    <Label>Quantity</Label>
-                    <Input
-                      type="number"
-                      placeholder="0"
-                      value={quantity}
-                      onChange={(e) => setQuantity(e.target.value)}
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <div className="flex justify-between text-sm">
-                      <span>Total Value:</span>
-                      <span className="font-medium">
-                        $
-                        {price && quantity
-                          ? (
-                              Number.parseFloat(price) *
-                              Number.parseFloat(quantity)
-                            ).toFixed(2)
-                          : "0.00"}
-                      </span>
+                    <div className="space-y-2">
+                      <div className="flex justify-between text-sm">
+                        <span>Total Cost:</span>
+                        <span className="font-medium">
+                          $
+                          {price && quantity
+                            ? (
+                                Number.parseFloat(price) *
+                                Number.parseFloat(quantity)
+                              ).toFixed(2)
+                            : "0.00"}
+                        </span>
+                      </div>
                     </div>
-                    <div className="flex justify-between text-sm">
-                      <span>Available Tokens:</span>
-                      <span>2,500 tokens</span>
+
+                    <Button className="w-full bg-green-600 hover:bg-green-700">
+                      Place Buy Order
+                    </Button>
+                  </TabsContent>
+
+                  <TabsContent value="sell" className="space-y-4">
+                    <div className="space-y-2">
+                      <Label>Order Type</Label>
+                      <Select value={orderType} onValueChange={setOrderType}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="limit">Limit Order</SelectItem>
+                          <SelectItem value="market">Market Order</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
-                  </div>
 
-                  <Button className="w-full bg-red-600 hover:bg-red-700">
-                    Place Sell Order
-                  </Button>
-                </TabsContent>
-              </Tabs>
-            </div>
-          </CardContent>
-        </Card>
+                    {orderType === "limit" && (
+                      <div className="space-y-2">
+                        <Label>Price per Token</Label>
+                        <Input
+                          type="number"
+                          placeholder="0.00"
+                          value={price}
+                          onChange={(e) => setPrice(e.target.value)}
+                        />
+                      </div>
+                    )}
 
-        {/* Recent Trades */}
-        <Card className="lg:col-span-1">
-          <CardHeader>
-            <CardTitle className="text-lg">Recent Trades</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              <div className="flex justify-between text-xs text-muted-foreground">
-                <span>Price</span>
-                <span>Quantity</span>
-                <span>Time</span>
+                    <div className="space-y-2">
+                      <Label>Quantity</Label>
+                      <Input
+                        type="number"
+                        placeholder="0"
+                        value={quantity}
+                        onChange={(e) => setQuantity(e.target.value)}
+                      />
+                    </div>
+
+                    <Button className="w-full bg-red-600 hover:bg-red-700">
+                      Place Sell Order
+                    </Button>
+                  </TabsContent>
+                </Tabs>
               </div>
-              {(liveTrades && liveTrades.length > 0
-                ? liveTrades
-                : recentTrades
-              ).map((trade, index) => (
-                <div key={index} className="flex justify-between text-sm">
-                  <span
-                    className={
-                      trade.type === "buy" ? "text-green-600" : "text-red-600"
-                    }
-                  >
-                    ${trade.price}
+            </CardContent>
+          </Card>
+
+          {/* Order Book */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Order Book</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                {/* Asks */}
+                <div>
+                  <div className="flex justify-between text-xs text-muted-foreground mb-2">
+                    <span>Price</span>
+                    <span>Qty</span>
+                  </div>
+                  <div className="space-y-1">
+                    {(liveOrderBook.asks && liveOrderBook.asks.length > 0
+                      ? liveOrderBook.asks.slice(0, 5).reverse()
+                      : orderBook.asks.slice(0, 5).reverse()
+                    ).map((ask: any, index: number) => (
+                      <div
+                        key={index}
+                        className="flex justify-between text-sm text-red-600"
+                      >
+                        <span>${ask.price}</span>
+                        <span>{ask.amount || ask.quantity}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Last Price */}
+                <div className="border-y py-2 text-center bg-muted/30">
+                  <span className="text-lg font-bold">
+                    $
+                    {(
+                      currentPrice ??
+                      selectedAssetMeta?.initialPrice ??
+                      0
+                    ).toFixed(4)}
                   </span>
-                  <span>{trade.quantity}</span>
-                  <span className="text-muted-foreground">{trade.time}</span>
                 </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
+
+                {/* Bids */}
+                <div>
+                  <div className="space-y-1">
+                    {(liveOrderBook.bids && liveOrderBook.bids.length > 0
+                      ? liveOrderBook.bids.slice(0, 5)
+                      : orderBook.bids.slice(0, 5)
+                    ).map((bid: any, index: number) => (
+                      <div
+                        key={index}
+                        className="flex justify-between text-sm text-green-600"
+                      >
+                        <span>${bid.price}</span>
+                        <span>{bid.amount || bid.quantity}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Recent Trades */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Recent Trades</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2">
+                <div className="flex justify-between text-[10px] text-muted-foreground">
+                  <span>Price</span>
+                  <span>Qty</span>
+                  <span>Time</span>
+                </div>
+                {(liveTrades && liveTrades.length > 0
+                  ? liveTrades
+                  : recentTrades
+                )
+                  .slice(0, 8)
+                  .map((trade, index) => (
+                    <div key={index} className="flex justify-between text-xs">
+                      <span
+                        className={
+                          trade.type === "buy"
+                            ? "text-green-600"
+                            : "text-red-600"
+                        }
+                      >
+                        ${trade.price}
+                      </span>
+                      <span>{trade.quantity}</span>
+                      <span className="text-muted-foreground">
+                        {trade.time}
+                      </span>
+                    </div>
+                  ))}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
       </div>
 
       {/* My Orders */}
@@ -705,8 +788,8 @@ export function TradingContent() {
                             order.status === "completed"
                               ? "default"
                               : order.status === "pending"
-                              ? "secondary"
-                              : "outline"
+                                ? "secondary"
+                                : "outline"
                           }
                         >
                           {String(order.status || "").toUpperCase()}

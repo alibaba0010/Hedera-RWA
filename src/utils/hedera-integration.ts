@@ -27,14 +27,14 @@ export async function initializeHederaClient(): Promise<{
 }> {
   try {
     const treasuryId = AccountId.fromString(
-      getEnv("VITE_PUBLIC_TREASURY_ACCOUNT_ID")
+      getEnv("VITE_PUBLIC_TREASURY_ACCOUNT_ID"),
     );
     const treasuryKey = PrivateKey.fromStringED25519(
-      getEnv("VITE_PUBLIC_TREASURY_DER_PRIVATE_KEY")
+      getEnv("VITE_PUBLIC_TREASURY_DER_PRIVATE_KEY"),
     );
     if (!treasuryId || !treasuryKey) {
       throw new Error(
-        "Missing Hedera environment variables: VITE_PUBLIC_TREASURY_ACCOUNT_ID or VITE_PUBLIC_TREASURY_HEX_PRIVATE_KEY"
+        "Missing Hedera environment variables: VITE_PUBLIC_TREASURY_ACCOUNT_ID or VITE_PUBLIC_TREASURY_HEX_PRIVATE_KEY",
       );
     }
     const client = Client.forTestnet().setOperator(treasuryId, treasuryKey);
@@ -61,51 +61,53 @@ export async function createHederaToken({
   symbol: string;
   decimals: number;
   initialSupply: number;
-  // supplyType: "INFINITE" | "FINITE";
-  supplyType: string;
+  supplyType: "INFINITE" | "FINITE";
+  // supplyType: string;
   maxSupply?: number | null;
   accountId: string;
   signer: DAppSigner;
 }): Promise<string> {
   try {
     const { client, treasuryKey, treasuryId } = await initializeHederaClient();
-    // Get user's public key from their account
+
+    // Get treasury public key (or we could use the user's public key if we had it)
     const accountInfo = await new AccountInfoQuery()
       .setAccountId(treasuryId)
       .execute(client);
-    const userPublicKey = accountInfo.key;
+    const treasuryPublicKey = accountInfo.key;
     // Determine max supply based on supply type
     const tokenMaxSupply = supplyType === "FINITE" ? maxSupply : 10_000_000;
     if (!tokenMaxSupply) return "Supply should be greater than 0";
     // Create the token create transaction
-    let tokenCreateTx = await new TokenCreateTransaction()
+    const isFinite = supplyType === "FINITE";
+    const tokenCreateTx = new TokenCreateTransaction()
       .setTokenName(name)
       .setTokenSymbol(symbol)
       .setTokenType(TokenType.FungibleCommon)
       .setDecimals(decimals)
-      .setInitialSupply(tokenMaxSupply)
-      .setMaxSupply(tokenMaxSupply)
+      .setInitialSupply(initialSupply || 0)
       .setTreasuryAccountId(treasuryId)
-      .setAdminKey(userPublicKey)
-      .setSupplyKey(userPublicKey)
+      .setAdminKey(treasuryPublicKey)
+      .setSupplyKey(treasuryPublicKey)
       .setSupplyType(
-        supplyType === "INFINITE"
-          ? TokenSupplyType.Infinite
-          : TokenSupplyType.Finite
+        isFinite ? TokenSupplyType.Finite : TokenSupplyType.Infinite,
       )
-      .setMaxTransactionFee(new Hbar(20))
-      .freezeWithSigner(signer);
+      .setMaxTransactionFee(new Hbar(30));
+
+    if (supplyType === "FINITE" && maxSupply) {
+      tokenCreateTx.setMaxSupply(maxSupply);
+    }
+
+    const frozenTx = await tokenCreateTx.freezeWithSigner(signer);
 
     // Sign the transaction with the treasury key
-    const tokenCreateSign = await tokenCreateTx.sign(treasuryKey);
+    const tokenCreateSign = await frozenTx.sign(treasuryKey);
 
     // Execute the transaction
     const tokenCreateSubmit = await tokenCreateSign.executeWithSigner(signer);
 
     // Get the transaction receipt
     const tokenCreateRx = await tokenCreateSubmit.getReceipt(client);
-
-    // Get the token ID
     const tokenId = tokenCreateRx.tokenId;
 
     // Transfer initial supply to the specified account if it's different from treasury
@@ -115,7 +117,7 @@ export async function createHederaToken({
         .addTokenTransfer(
           tokenId!,
           AccountId.fromString(accountId),
-          initialSupply
+          initialSupply,
         )
         .freezeWith(client);
 
@@ -205,13 +207,13 @@ export async function publishToRegistry(tokenId: string, metadataCID: string) {
   }).execute(client);
   const receipt = await submitMsgTx.getReceipt(client);
   console.log(
-    `📤 Registry message submitted | Status: ${receipt.status.toString()}`
+    `📤 Registry message submitted | Status: ${receipt.status.toString()}`,
   );
 }
 
 // --- Mirror Node ---
 export async function fetchAssetDataFromMirrorNode(
-  tokenId: string
+  tokenId: string,
 ): Promise<any> {
   // TODO: Query Hedera Mirror Node REST API for token info, supply, transactions
   return {
@@ -242,7 +244,7 @@ export async function fetchAssetMetadataFromIPFS(cid: string): Promise<any> {
 }
 export async function checkTokenAssocationMirrorNode(
   tokenId: string,
-  accountId: string
+  accountId: string,
 ): Promise<boolean> {
   try {
     // First check if the account exists and get its tokens
@@ -254,7 +256,7 @@ export async function checkTokenAssocationMirrorNode(
         return false; // Account doesn't exist or has no token associations
       }
       throw new Error(
-        `Failed to fetch account info: ${accountResponse.statusText}`
+        `Failed to fetch account info: ${accountResponse.statusText}`,
       );
     }
 
@@ -264,7 +266,7 @@ export async function checkTokenAssocationMirrorNode(
     if (accountData.tokens) {
       // Find the specific token in the account's token relationships
       const tokenAssociation = accountData.tokens.find(
-        (token: { token_id: string }) => token.token_id === tokenId
+        (token: { token_id: string }) => token.token_id === tokenId,
       );
 
       return !!tokenAssociation; // Returns true if token is found, false otherwise
@@ -283,7 +285,7 @@ export const buyAssetToken = async (
   amount: number,
   signer: DAppSigner,
   tradingPair: "HBAR" | "USDC",
-  value: number
+  value: number,
 ): Promise<{ status: string; receipt: any }> => {
   try {
     console.log("Buy Asset Token ", tradingPair, value);
@@ -301,7 +303,7 @@ export const buyAssetToken = async (
 
       if (deductHbarRx.status.toString() !== "SUCCESS") {
         throw new Error(
-          `HBAR payment failed with status: ${deductHbarRx.status}`
+          `HBAR payment failed with status: ${deductHbarRx.status}`,
         );
       }
       console.log(`HBAR payment successful: ${deductHbarRx.status} ✅`);
@@ -314,14 +316,13 @@ export const buyAssetToken = async (
         .freezeWith(client);
 
       const usdcTransferSign = await usdcTransferTx.sign(treasuryKey);
-      const usdcTransferSubmit = await usdcTransferSign.executeWithSigner(
-        signer
-      );
+      const usdcTransferSubmit =
+        await usdcTransferSign.executeWithSigner(signer);
       const usdcTransferRx = await usdcTransferSubmit.getReceipt(client);
 
       if (usdcTransferRx.status.toString() !== "SUCCESS") {
         throw new Error(
-          `USDC payment failed with status: ${usdcTransferRx.status}`
+          `USDC payment failed with status: ${usdcTransferRx.status}`,
         );
       }
       console.log(`USDC payment successful: ${usdcTransferRx.status} ✅`);
@@ -339,7 +340,7 @@ export const buyAssetToken = async (
 
     if (tokenTransferRx.status.toString() !== "SUCCESS") {
       throw new Error(
-        `Transaction failed with status: ${tokenTransferRx.status}`
+        `Transaction failed with status: ${tokenTransferRx.status}`,
       );
     }
 
@@ -359,7 +360,7 @@ export const sellAssetToken = async (
   accountId: string,
   amount: number,
   signer: DAppSigner,
-  value: number
+  value: number,
 ): Promise<{ status: string; receipt: any }> => {
   try {
     const { client, treasuryId, treasuryKey } = await initializeHederaClient();
@@ -378,7 +379,7 @@ export const sellAssetToken = async (
 
     if (tokenTransferRx.status.toString() !== "SUCCESS") {
       throw new Error(
-        `Transaction failed with status: ${tokenTransferRx.status}`
+        `Transaction failed with status: ${tokenTransferRx.status}`,
       );
     }
     // Handle payment based on trading pair
@@ -395,7 +396,7 @@ export const sellAssetToken = async (
     console.log("Deduct HBAR Receipt:", deductHbarRx);
     if (deductHbarRx.status.toString() !== "SUCCESS") {
       throw new Error(
-        `HBAR payment failed with status: ${deductHbarRx.status}`
+        `HBAR payment failed with status: ${deductHbarRx.status}`,
       );
     }
     console.log(`HBAR payment successful: ${deductHbarRx.status} ✅`);
@@ -413,7 +414,7 @@ export const sellAssetToken = async (
 // TODO: Get the available tokens available on treasury account
 export const getTokenBalanceByTokenId = async (
   tokenId: string,
-  accountId: string
+  accountId: string,
 ) => {
   // get hbar balance from treasury account
   const { client } = await initializeHederaClient();
@@ -433,7 +434,7 @@ export const mintNft = async (
   tokenId: string,
   metadata: Uint8Array[],
   accountId: string,
-  signer: DAppSigner
+  signer: DAppSigner,
 ): Promise<string[]> => {
   try {
     const { client, treasuryKey } = await initializeHederaClient();

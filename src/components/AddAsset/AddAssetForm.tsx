@@ -36,19 +36,19 @@ import {
   type AssetForm,
 } from "@/utils/form";
 import FileUploader from "./FileUploader";
-import { SectionHeader, StepIndicator } from "./FromContent";
+import { SectionHeader, StepIndicator } from "./FormContent";
 import LocationSelector from "./LocationSelector";
 import AssetValueSupply from "./AssetValueSupply";
 import {
   createHederaToken,
   sendHcsMessage,
   publishToRegistry,
-  
 } from "@/utils/hedera-integration";
 import { WalletContext } from "@/contexts/WalletContext";
 import { saveMetadataCIDToDatabase } from "@/utils/supabase";
 import { hashFile, uploadFileToIPFS, uploadJSONToIPFS } from "@/utils";
 import { useNotification } from "@/contexts/notification-context";
+import { useAssetSubmission, SUBMISSION_STEPS } from "./useAssetSubmission";
 
 const useDebounce = (value: string, delay: number) => {
   const [debouncedValue, setDebouncedValue] = useState(value);
@@ -66,25 +66,15 @@ const useDebounce = (value: string, delay: number) => {
   return debouncedValue;
 };
 
-const SUBMISSION_STEPS = [
-  "Uploading Files to IPFS",
-  "Creating Asset Metadata",
-  "Creating Hedera Token",
-  "Publishing to Registry",
-  "Anchoring Document Hashes",
-];
-
 const AddAssetForm: FC = () => {
   const { accountId, signer } = useContext(WalletContext);
 
   const [form, setForm] = useState<AssetForm>(initialForm);
   const [step, setStep] = useState(0);
-  const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [, setCompletedSubmissionSteps] = useState<number[]>([]);
-  const [currentSubmissionStep, setCurrentSubmissionStep] =
-    useState<number>(-1);
-  const [showStepComplete, setShowStepComplete] = useState<boolean>(false);
+
+  const { submitAsset, loading, currentSubmissionStep, showStepComplete } =
+    useAssetSubmission();
 
   // Asset value supply state
   const [assetValueBase, setAssetValueBase] = useState("");
@@ -96,7 +86,7 @@ const AddAssetForm: FC = () => {
   const [pricePerTokenUSD, setPricePerTokenUSD] = useState("");
   const [dividendYield, setDividendYield] = useState("");
   const [payoutFrequency, setPayoutFrequency] = useState(
-    PAYOUT_OPTIONS[0].value
+    PAYOUT_OPTIONS[0].value,
   );
   const [nextPayout, setNextPayout] = useState("");
   const [initialSupplyPercentage, setInitialSupplyPercentage] = useState("0");
@@ -171,7 +161,7 @@ const AddAssetForm: FC = () => {
         });
       }
     },
-    []
+    [],
   );
 
   const handleSelectChange = useCallback(
@@ -189,7 +179,7 @@ const AddAssetForm: FC = () => {
         });
       }
     },
-    []
+    [],
   );
 
   const handleDescriptionChange = useCallback(
@@ -197,7 +187,7 @@ const AddAssetForm: FC = () => {
       const value = e.target.value;
       setForm((prev) => ({ ...prev, assetDescription: value }));
     },
-    []
+    [],
   );
 
   useEffect(() => {
@@ -260,7 +250,7 @@ const AddAssetForm: FC = () => {
         return newErrors;
       });
     },
-    []
+    [],
   );
 
   // Handler for asset value and supply fields
@@ -310,7 +300,7 @@ const AddAssetForm: FC = () => {
           return true;
       }
     },
-    [validateStep1, validateStep2, validateStep3, validateStep4]
+    [validateStep1, validateStep2, validateStep3, validateStep4],
   );
 
   const nextStep = useCallback(() => {
@@ -323,222 +313,42 @@ const AddAssetForm: FC = () => {
     setStep((s) => Math.max(s - 1, 0));
   }, []);
 
-  // Helper function to handle step progression
-  const progressToNextStep = (stepIndex: number) => {
-    setCurrentSubmissionStep(stepIndex);
-    setShowStepComplete(false);
-
-    // Simulate step completion after some time
-    setTimeout(() => {
-      setShowStepComplete(true);
-      setCompletedSubmissionSteps((prev) => [...prev, stepIndex]);
-
-      // Hide completed step after 1 second and move to next
-      setTimeout(() => {
-        if (stepIndex < SUBMISSION_STEPS.length - 1) {
-          progressToNextStep(stepIndex + 1);
-        } else {
-          // All steps completed
-          setCurrentSubmissionStep(-1);
-          setShowStepComplete(false);
-        }
-      }, 1000);
-    }, 2000); // Adjust timing as needed for your actual submission process
-  };
-
   const handleSubmit = useCallback(
     async (e: FormEvent) => {
       e.preventDefault();
       if (!validateStep(step)) return;
 
-      setLoading(true);
-      setCurrentSubmissionStep(0);
-      setCompletedSubmissionSteps([]);
-      progressToNextStep(0);
-
-      try {
-        // Step 1: Upload files to IPFS and hash them
-        const fileUploads = [];
-
-        // Upload primary image
-        if (form.primaryImage) {
-          fileUploads.push(
-            uploadFileToIPFS(form.primaryImage).then((cid) => ({
-              type: "primaryImage",
-              cid,
-              hash: hashFile(form.primaryImage!),
-            }))
-          );
-        }
-        // Upload additional images
-        if (form.additionalImages.length > 0) {
-          form.additionalImages.forEach((file) => {
-            fileUploads.push(
-              uploadFileToIPFS(file).then((cid) => ({
-                type: "additionalImage",
-                cid,
-                hash: hashFile(file),
-              }))
-            );
-          });
-        }
-
-        // Upload legal documents
-        if (form.legalDocs) {
-          fileUploads.push(
-            uploadFileToIPFS(form.legalDocs).then((cid) => ({
-              type: "legalDocs",
-              cid,
-              hash: hashFile(form.legalDocs!),
-            }))
-          );
-        }
-
-        // Upload valuation report
-        if (form.valuationReport) {
-          fileUploads.push(
-            uploadFileToIPFS(form.valuationReport).then((cid) => ({
-              type: "valuationReport",
-              cid,
-              hash: hashFile(form.valuationReport!),
-            }))
-          );
-        }
-
-        // Wait for all file uploads and hashing to complete
-        const uploadResults = await Promise.all(fileUploads);
-
-        // Organize upload results
-        type FileData = {
-          primaryImage?: { cid: string; hash: Promise<string> | string };
-          additionalImages?: { cid: string; hash: Promise<string> | string }[];
-          legalDocs?: { cid: string; hash: Promise<string> | string };
-          valuationReport?: { cid: string; hash: Promise<string> | string };
-        };
-
-        const fileData = uploadResults.reduce<FileData>((acc, result) => {
-          if (result.type === "primaryImage") {
-            acc.primaryImage = { cid: result.cid, hash: result.hash };
-          } else if (result.type === "additionalImage") {
-            if (!acc.additionalImages) acc.additionalImages = [];
-            acc.additionalImages.push({ cid: result.cid, hash: result.hash });
-          } else if (result.type === "legalDocs") {
-            acc.legalDocs = { cid: result.cid, hash: result.hash };
-          } else if (result.type === "valuationReport") {
-            acc.valuationReport = { cid: result.cid, hash: result.hash };
-          }
-          return acc;
-        }, {});
-        setCompletedSubmissionSteps((prev) => [...prev, 0]); // Mark file upload step complete
-        setCurrentSubmissionStep(1);
-        setShowStepComplete(true);
-
-        // Step 2: Create metadata object
-        const assetValue = Number(assetValueBase.replace(/,/g, ""));
-        const supplyValue = Number(supplyBase.replace(/,/g, ""));
-
-        setCompletedSubmissionSteps((prev) => [...prev, 1]); // Mark metadata creation step complete
-        setCurrentSubmissionStep(2);
-        setShowStepComplete(true);
-        // Step 4: Create Hedera token
-        if (!accountId || !signer) return;
-
-        const tokenId = await createHederaToken({
-          name: form.tokenName,
-          symbol: form.tokenSymbol,
-          decimals: Number(form.decimals),
-          initialSupply: calculatedInitialSupply,
-          accountId,
-          signer,
-          supplyType: form.supplyType === "infinite" ? "INFINITE" : "FINITE",
-          maxSupply: form.supplyType === "finite" ? supplyValue : null,
-        });
-
-        setCompletedSubmissionSteps((prev) => [...prev, 2]); // Mark token creation step complete
-        setCurrentSubmissionStep(3);
-        setShowStepComplete(true);
-
-        // Step 6: Publish to Registry
-        setCompletedSubmissionSteps((prev) => [...prev, 3]); // Mark registry publishing step complete
-        setCurrentSubmissionStep(4);
-        setShowStepComplete(true);
-
-        // Step 7: Send message to HCS topic with file hashes
-        const metadata = {
-          name: form.assetName,
-          description: form.assetDescription,
-          category: form.category,
-          location: form.geolocation,
-          files: fileData,
-          tokenomics: {
-            assetValue: assetValue,
-            tokenSupply: supplyValue,
-            projectedIncome: Number(projectedIncome),
-            annualIncome: Number(annualIncome),
-            pricePerTokenUSD: Number(pricePerTokenUSD),
-            dividendYield: Number(dividendYield),
-            payoutFrequency,
-            nextPayout,
-          },
-          tokenConfig: {
-            name: form.tokenName,
-            symbol: form.tokenSymbol,
-            decimals: Number(form.decimals),
-            supplyType: form.supplyType,
-            kycKey: form.kycKey || undefined,
-            freezeKey: form.freezeKey || undefined,
-            id: tokenId,
-          },
-          additionalInfo: {
-            insuranceDetails: form.insuranceDetails,
-            specialRights: form.specialRights,
-          },
-          createdAt: new Date().toISOString(),
-          owner: accountId,
-        };
-        // Step 3: Upload metadata to IPFS
-        const metadataCID = await uploadJSONToIPFS(metadata);
-        console.log("Meta CID: ", metadataCID);
-        const data = {
-          metadataCID,
-          tokenId,
-          owner: accountId,
-          created_at: new Date().toISOString(),
-        };
-        await saveMetadataCIDToDatabase(data);
-        await publishToRegistry(tokenId, metadataCID);
-
-        await sendHcsMessage({
-          type: "ASSET_CREATED",
-          tokenId,
-          metadataCID,
-          fileHashes: fileData,
-          timestamp: new Date().toISOString(),
-        });
-
-        setCompletedSubmissionSteps((prev) => [...prev, 4]);
-        setCurrentSubmissionStep(-1);
-        setShowStepComplete(false);
+      if (!accountId || !signer) {
         showNotification({
-          title: "Asset Creation",
-          message: "Asset created successfully!",
-          variant: "success",
-        });
-
-        // Reset form
-        setForm(initialForm);
-        setStep(0);
-      } catch (error: any) {
-        console.error("Submission error:", error.message);
-        showNotification({
-          title: "Asset Creation",
-          message: "Failed to create asset, Please try again",
+          title: "Wallet Not Connected",
+          message: "Please connect your wallet to create an asset",
           variant: "error",
         });
-       
-      } finally {
-        setLoading(false);
+        return;
       }
+
+      await submitAsset({
+        form,
+        accountId,
+        signer,
+        calculatedInitialSupply,
+        supplyValue: Number(supplyBase.replace(/,/g, "")),
+        tokenomics: {
+          assetValue: Number(assetValueBase.replace(/,/g, "")),
+          tokenSupply: Number(supplyBase.replace(/,/g, "")),
+          projectedIncome: Number(projectedIncome),
+          annualIncome: Number(annualIncome),
+          pricePerTokenUSD: Number(pricePerTokenUSD),
+          dividendYield: Number(dividendYield),
+          payoutFrequency,
+          nextPayout,
+        },
+        fileDataOptions: {},
+        onSuccess: () => {
+          setForm(initialForm);
+          setStep(0);
+        },
+      });
     },
     [
       step,
@@ -554,7 +364,7 @@ const AddAssetForm: FC = () => {
       dividendYield,
       payoutFrequency,
       nextPayout,
-    ]
+    ],
   );
 
   const hasErrors = useMemo(() => Object.keys(errors).length > 0, [errors]);
