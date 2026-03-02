@@ -9,11 +9,70 @@ import {
   TokenSupplyType,
   AccountInfoQuery,
   TransferTransaction,
-  // TopicMessageQuery
+  TokenGrantKycTransaction,
   Hbar,
+  TokenId,
 } from "@hashgraph/sdk";
 import { getEnv, topicId, usdcTokenId } from "@/utils";
 import { DAppSigner } from "@hashgraph/hedera-wallet-connect";
+
+// ─── Custom error for insufficient balance ────────────────────────────────────
+export class InsufficientBalanceError extends Error {
+  constructor(
+    public readonly account: string,
+    public readonly required: number,
+    public readonly available: number,
+    public readonly currency: string,
+  ) {
+    super(
+      `Insufficient ${currency} balance on account ${account}. ` +
+        `Required: ${required} ${currency}, Available: ${available} ${currency}.`,
+    );
+    this.name = "InsufficientBalanceError";
+  }
+}
+
+// ─── Mirror-Node balance helpers ──────────────────────────────────────────────
+
+/**
+ * Returns the HBAR balance (in whole HBAR) for the given account.
+ * Uses the Hedera Testnet Mirror Node REST API.
+ */
+export async function getHbarBalance(accountId: string): Promise<number> {
+  const url = `https://testnet.mirrornode.hedera.com/api/v1/accounts/${accountId}`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new Error(
+      `Failed to fetch HBAR balance for ${accountId}: ${res.statusText}`,
+    );
+  }
+  const data = await res.json();
+  // Mirror Node returns balance in tinybars; convert to HBAR (1 HBAR = 100_000_000 tinybars)
+  const tinybars: number = data?.balance?.balance ?? 0;
+  return tinybars / 100_000_000;
+}
+
+/**
+ * Returns the balance of a specific HTS token for the given account.
+ * The returned value is in the token's smallest denomination (as stored on-chain).
+ */
+export async function getAccountTokenBalance(
+  accountId: string,
+  tokenId: string,
+): Promise<number> {
+  const url = `https://testnet.mirrornode.hedera.com/api/v1/accounts/${accountId}/tokens?token.id=${tokenId}&limit=1`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new Error(
+      `Failed to fetch token balance for account ${accountId}: ${res.statusText}`,
+    );
+  }
+  const data = await res.json();
+  const tokenEntry = (data?.tokens ?? []).find(
+    (t: { token_id: string; balance: number }) => t.token_id === tokenId,
+  );
+  return tokenEntry?.balance ?? 0;
+}
 interface TradingOptions {
   tradingPair: "HBAR" | "USDC";
   value: number;
@@ -56,16 +115,17 @@ export async function createHederaToken({
   maxSupply,
   accountId,
   signer,
+  requireKyc,
 }: {
   name: string;
   symbol: string;
   decimals: number;
   initialSupply: number;
   supplyType: "INFINITE" | "FINITE";
-  // supplyType: string;
   maxSupply?: number | null;
   accountId: string;
   signer: DAppSigner;
+  requireKyc?: boolean;
 }): Promise<string> {
   try {
     const { client, treasuryKey, treasuryId } = await initializeHederaClient();
@@ -93,6 +153,11 @@ export async function createHederaToken({
         isFinite ? TokenSupplyType.Finite : TokenSupplyType.Infinite,
       )
       .setMaxTransactionFee(new Hbar(30));
+
+    // If requireKyc is passed, default the KYC key to the treasury public key
+    if (requireKyc) {
+      tokenCreateTx.setKycKey(treasuryPublicKey);
+    }
 
     if (supplyType === "FINITE" && maxSupply) {
       tokenCreateTx.setMaxSupply(maxSupply);
@@ -290,6 +355,42 @@ export const buyAssetToken = async (
   try {
     console.log("Buy Asset Token ", tradingPair, value);
     const { client, treasuryId, treasuryKey } = await initializeHederaClient();
+
+    // ── Pre-flight balance check ──────────────────────────────────────────────
+    if (tradingPair === "HBAR") {
+      const buyerHbarBalance = await getHbarBalance(accountId);
+      console.log(
+        `Buyer HBAR balance: ${buyerHbarBalance} HBAR | Required: ${value} HBAR`,
+      );
+      if (buyerHbarBalance < value) {
+        throw new InsufficientBalanceError(
+          accountId,
+          value,
+          buyerHbarBalance,
+          "HBAR",
+        );
+      }
+    } else {
+      // USDC: balance is stored in micro-units (6 decimals)
+      const usdcAmountRequired = value * 1_000_000;
+      const buyerUsdcBalance = await getAccountTokenBalance(
+        accountId,
+        usdcTokenId,
+      );
+      console.log(
+        `Buyer USDC balance: ${buyerUsdcBalance} µUSDC | Required: ${usdcAmountRequired} µUSDC`,
+      );
+      if (buyerUsdcBalance < usdcAmountRequired) {
+        throw new InsufficientBalanceError(
+          accountId,
+          value,
+          buyerUsdcBalance / 1_000_000,
+          "USDC",
+        );
+      }
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
     // Handle payment based on trading pair
     if (tradingPair === "HBAR") {
       const hbarAmount = new Hbar(value);
@@ -327,9 +428,9 @@ export const buyAssetToken = async (
       }
       console.log(`USDC payment successful: ${usdcTransferRx.status} ✅`);
     }
-    // Create the transfer transaction
-    const tokenTransferTx = await new TransferTransaction()
 
+    // Transfer asset tokens from treasury → buyer
+    const tokenTransferTx = await new TransferTransaction()
       .addTokenTransfer(tokenId, treasuryId, -amount) // Deduct from treasury
       .addTokenTransfer(tokenId, accountId, amount) // Add to buyer
       .freezeWith(client)
@@ -350,6 +451,8 @@ export const buyAssetToken = async (
       receipt: tokenTransferRx,
     };
   } catch (error: any) {
+    // Re-throw InsufficientBalanceError as-is so callers can inspect it
+    if (error instanceof InsufficientBalanceError) throw error;
     console.error("Error in buyAssetToken:", error);
     throw new Error(`Failed to buy asset token: ${error.message}`);
   }
@@ -365,7 +468,38 @@ export const sellAssetToken = async (
   try {
     const { client, treasuryId, treasuryKey } = await initializeHederaClient();
 
-    // Create the transfer transaction
+    // ── Pre-flight balance checks ─────────────────────────────────────────────
+
+    // 1. Seller must hold enough asset tokens to sell
+    const sellerTokenBalance = await getAccountTokenBalance(accountId, tokenId);
+    console.log(
+      `Seller token balance: ${sellerTokenBalance} | Required: ${amount}`,
+    );
+    if (sellerTokenBalance < amount) {
+      throw new InsufficientBalanceError(
+        accountId,
+        amount,
+        sellerTokenBalance,
+        `token (${tokenId})`,
+      );
+    }
+
+    // 2. Treasury must hold enough HBAR to pay the seller
+    const treasuryHbarBalance = await getHbarBalance(treasuryId.toString());
+    console.log(
+      `Treasury HBAR balance: ${treasuryHbarBalance} HBAR | Required: ${value} HBAR`,
+    );
+    if (treasuryHbarBalance < value) {
+      throw new InsufficientBalanceError(
+        treasuryId.toString(),
+        value,
+        treasuryHbarBalance,
+        "HBAR (treasury)",
+      );
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
+    // Transfer asset tokens from seller → treasury
     const tokenTransferTx = await new TransferTransaction()
       .addTokenTransfer(tokenId, accountId, -amount) // Deduct from seller
       .addTokenTransfer(tokenId, treasuryId, amount) // Add to treasury
@@ -382,7 +516,8 @@ export const sellAssetToken = async (
         `Transaction failed with status: ${tokenTransferRx.status}`,
       );
     }
-    // Handle payment based on trading pair
+
+    // Pay the seller in HBAR from treasury
     const hbarAmount = new Hbar(value);
     const deductHbarTx = await new TransferTransaction()
       .addHbarTransfer(treasuryId, hbarAmount.negated()) // Deduct HBAR from treasury
@@ -406,27 +541,37 @@ export const sellAssetToken = async (
       receipt: tokenTransferRx,
     };
   } catch (error: any) {
+    // Re-throw InsufficientBalanceError as-is so callers can inspect it
+    if (error instanceof InsufficientBalanceError) throw error;
     console.error("Error in sellAssetToken:", error);
     throw new Error(`Failed to sell asset token: ${error.message}`);
   }
 };
 
-// TODO: Get the available tokens available on treasury account
 export const getTokenBalanceByTokenId = async (
   tokenId: string,
   accountId: string,
 ) => {
-  // get hbar balance from treasury account
-  const { client } = await initializeHederaClient();
+  try {
+    const { client } = await initializeHederaClient();
 
-  const accountInfo = await new AccountInfoQuery()
-    .setAccountId(accountId)
-    .execute(client);
-  const tokenBalance = accountInfo.tokenRelationships.get(tokenId);
-  if (!tokenBalance) {
-    throw new Error(`No token relationship found for token ID: ${tokenId}`);
+    const accountInfo = await new AccountInfoQuery()
+      .setAccountId(accountId)
+      .execute(client);
+
+    // The SDK map uses TokenId objects as keys, so we must convert the string
+    const tokenIdObj = TokenId.fromString(tokenId);
+    const tokenBalance = accountInfo.tokenRelationships.get(tokenIdObj);
+
+    if (!tokenBalance) {
+      // Return 0 if not associated instead of throwing an error
+      return "0";
+    }
+    return tokenBalance.balance.toString();
+  } catch (error) {
+    console.warn(`Could not fetch balance for token ${tokenId}:`, error);
+    return "0";
   }
-  return tokenBalance.balance.toString();
 };
 
 // mint nft function
@@ -460,5 +605,103 @@ export const mintNft = async (
   } catch (error: any) {
     console.error("Error minting NFT:", error);
     throw new Error(`Failed to mint NFT: ${error.message}`);
+  }
+};
+
+export const grantKyc = async (
+  tokenId: string,
+  accountIdToGrant: string,
+): Promise<string> => {
+  try {
+    const { client, treasuryKey } = await initializeHederaClient();
+
+    const transaction = new TokenGrantKycTransaction()
+      .setTokenId(tokenId)
+      .setAccountId(accountIdToGrant)
+      .freezeWith(client);
+
+    const signTx = await transaction.sign(treasuryKey);
+    const txResponse = await signTx.execute(client);
+    const receipt = await txResponse.getReceipt(client);
+
+    if (receipt.status.toString() !== "SUCCESS") {
+      throw new Error(`Grant KYC failed with status: ${receipt.status}`);
+    }
+
+    return receipt.status.toString();
+  } catch (error: any) {
+    console.error("Error granting KYC:", error);
+    throw new Error(`Failed to grant KYC: ${error.message}`);
+  }
+};
+
+export const distributeYield = async (
+  tokenId: string,
+  yieldAmountHbar: number,
+  signer: DAppSigner,
+): Promise<{ status: string; totalDistributed: number }> => {
+  try {
+    const { client, treasuryId } = await initializeHederaClient();
+
+    // 1. Fetch current holders of the token from testnet mirror node
+    const url = `https://testnet.mirrornode.hedera.com/api/v1/tokens/${tokenId}/balances`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error("Failed to fetch token balances");
+
+    const data = await res.json();
+    let balances = data.balances || [];
+
+    // Filter out treasury account and empty balances
+    balances = balances.filter(
+      (b: any) => b.account !== treasuryId.toString() && Number(b.balance) > 0,
+    );
+
+    if (balances.length === 0) {
+      throw new Error("No holders found to distribute yield to.");
+    }
+
+    // 2. Calculate proportions
+    const totalHolderSupply = balances.reduce(
+      (sum: number, b: any) => sum + Number(b.balance),
+      0,
+    );
+
+    // 3. Prepare TransferTransaction
+    const transferTx = new TransferTransaction();
+    let totalDistributed = 0;
+
+    // Distribute proportional HBAR
+    balances.forEach((b: any) => {
+      const share = Number(b.balance) / totalHolderSupply;
+      let userReward = yieldAmountHbar * share;
+      // Truncate to avoid too many decimal places
+      userReward = Math.floor(userReward * 1e8) / 1e8;
+
+      if (userReward > 0) {
+        transferTx.addHbarTransfer(b.account, new Hbar(userReward));
+        totalDistributed += userReward;
+      }
+    });
+
+    if (totalDistributed <= 0) {
+      throw new Error("Calculated distribution amount is zero.");
+    }
+
+    // Treasury pays the entire sum distributed
+    transferTx.addHbarTransfer(treasuryId, new Hbar(-totalDistributed));
+    transferTx.freezeWith(client);
+
+    // 4. Sign and execute using the DappSigner (since owner triggered this)
+    const transferSubmit = await transferTx.executeWithSigner(signer);
+    const transferRx = await transferSubmit.getReceipt(client);
+
+    if (transferRx.status.toString() !== "SUCCESS") {
+      throw new Error(`Yield distribution failed: ${transferRx.status}`);
+    }
+
+    return { status: transferRx.status.toString(), totalDistributed };
+  } catch (error: any) {
+    console.error("Error in distributeYield:", error);
+    throw new Error(`Failed to distribute yield: ${error.message}`);
   }
 };

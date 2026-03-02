@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useRef, useState, useMemo } from "react";
+import React, { useEffect, useRef, useMemo } from "react";
 import {
   createChart,
   ColorType,
@@ -12,7 +12,6 @@ import {
   CandlestickSeries,
   LineSeries,
 } from "lightweight-charts";
-import { Card } from "@/components/ui/card";
 import { ChartControls } from "./ChartControls";
 import {
   OHLC,
@@ -20,11 +19,8 @@ import {
   aggregateOHLC,
   getPriceStats,
 } from "@/utils/chartUtils";
-import {
-  calculateSMA,
-  calculateRSI,
-  calculateBollingerBands,
-} from "@/components/Trading/ChartIndicators";
+import { calculateSMA } from "@/components/Trading/ChartIndicators";
+import { useState } from "react";
 
 interface TradingChartProps {
   data?: OHLC[];
@@ -43,9 +39,10 @@ export const TradingChart = ({
 }: TradingChartProps) => {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
-  const seriesRef = useRef<
-    ISeriesApi<"Candlestick"> | ISeriesApi<"Line"> | null
-  >(null);
+  const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
+  const lineSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const smaSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
+
   const [currentTimeFrame, setCurrentTimeFrame] = useState<TimeFrame>("1h");
   const [chartType, setChartType] = useState<"candlestick" | "line">(
     "candlestick",
@@ -63,6 +60,7 @@ export const TradingChart = ({
     return getPriceStats(displayData);
   }, [displayData]);
 
+  // ── Step 1: Initialize chart once ──────────────────────────────────────────
   useEffect(() => {
     if (!chartContainerRef.current) return;
 
@@ -72,7 +70,7 @@ export const TradingChart = ({
         textColor: "#d1d5db",
       },
       width: chartContainerRef.current.clientWidth,
-      height: height,
+      height,
       grid: {
         vertLines: { color: "#1f2937" },
         horzLines: { color: "#1f2937" },
@@ -80,75 +78,127 @@ export const TradingChart = ({
       timeScale: {
         borderColor: "#374151",
         timeVisible: true,
-        secondsVisible: false,
+        secondsVisible: true,
       },
     });
 
     chartRef.current = chart;
 
+    // Create both series upfront — toggle visibility instead of add/remove
+    const cSeries = chart.addSeries(CandlestickSeries, {
+      upColor: "#22c55e",
+      downColor: "#ef4444",
+      borderVisible: false,
+      wickUpColor: "#22c55e",
+      wickDownColor: "#ef4444",
+    });
+    candleSeriesRef.current = cSeries;
+
+    const lSeries = chart.addSeries(LineSeries, {
+      color: "#3b82f6",
+      lineWidth: 2,
+      visible: false,
+    });
+    lineSeriesRef.current = lSeries;
+
+    // SMA series (hidden by default)
+    const smaSeries = chart.addSeries(LineSeries, {
+      color: "#f59e0b",
+      lineWidth: 1,
+      title: "SMA 20",
+      visible: false,
+    });
+    smaSeriesRef.current = smaSeries;
+
     const observer = new ResizeObserver((entries) => {
       if (entries.length > 0 && chartContainerRef.current) {
-        const newRect = entries[0].contentRect;
-        chart.applyOptions({ width: newRect.width });
+        chart.applyOptions({ width: entries[0].contentRect.width });
       }
     });
-
     observer.observe(chartContainerRef.current);
 
     return () => {
       observer.disconnect();
+      candleSeriesRef.current = null;
+      lineSeriesRef.current = null;
+      smaSeriesRef.current = null;
+      chartRef.current = null;
       chart.remove();
     };
-  }, [height]);
+  }, [height]); // only re-create if height changes
 
+  // ── Step 2: Push data into existing series whenever data / type / indicators change ─
   useEffect(() => {
-    if (!chartRef.current) return;
+    const chart = chartRef.current;
+    const cSeries = candleSeriesRef.current;
+    const lSeries = lineSeriesRef.current;
+    const smaSeries = smaSeriesRef.current;
+    if (!chart || !cSeries || !lSeries || !smaSeries) return;
 
-    // Remove existing series
-    if (seriesRef.current) {
-      try {
-        chartRef.current.removeSeries(seriesRef.current);
-      } catch (e) {
-        // ignore
-      }
-    }
+    if (displayData.length === 0) return;
+
+    // Sort by time (lightweight-charts requires ascending order)
+    const sorted = [...displayData].sort(
+      (a, b) => (a.time as number) - (b.time as number),
+    );
 
     if (chartType === "candlestick") {
-      const candlestickSeries = chartRef.current.addSeries(CandlestickSeries, {
-        upColor: "#22c55e",
-        downColor: "#ef4444",
-        borderVisible: false,
-        wickUpColor: "#22c55e",
-        wickDownColor: "#ef4444",
-      });
-      candlestickSeries.setData(displayData as CandlestickData[]);
-      seriesRef.current = candlestickSeries;
+      cSeries.applyOptions({ visible: true });
+      lSeries.applyOptions({ visible: false });
+      cSeries.setData(sorted as CandlestickData[]);
     } else {
-      const lineSeries = chartRef.current.addSeries(LineSeries, {
-        color: "#3b82f6",
-        lineWidth: 2,
-      });
-      const lineData: LineData[] = displayData.map((d) => ({
+      cSeries.applyOptions({ visible: false });
+      lSeries.applyOptions({ visible: true });
+      const lineData: LineData[] = sorted.map((d) => ({
         time: d.time,
         value: d.close,
       }));
-      lineSeries.setData(lineData);
-      seriesRef.current = lineSeries;
+      lSeries.setData(lineData);
     }
 
-    // Add Indicators (Simplified for now - can be expanded)
-    if (indicators.includes("sma20")) {
-      const smaData = calculateSMA(displayData as OHLC[], 20);
-      const smaSeries = chartRef.current.addSeries(LineSeries, {
-        color: "#3b82f6",
-        lineWidth: 1,
-        title: "SMA 20",
-      });
+    // SMA indicator
+    if (indicators.includes("sma20") && sorted.length >= 20) {
+      const smaData = calculateSMA(sorted as OHLC[], 20);
+      smaSeries.applyOptions({ visible: true });
       smaSeries.setData(smaData.map((d) => ({ time: d.time, value: d.value })));
+    } else {
+      smaSeries.applyOptions({ visible: false });
     }
 
-    chartRef.current.timeScale().fitContent();
+    chart.timeScale().fitContent();
   }, [chartType, displayData, indicators]);
+
+  // ── Step 3: Stream new candle updates via update() (not setData) ────────────
+  // This effect listens for the very last data point being appended
+  // and calls series.update() to avoid full redraws.
+  const prevDataLenRef = useRef<number>(0);
+
+  useEffect(() => {
+    const chart = chartRef.current;
+    const cSeries = candleSeriesRef.current;
+    const lSeries = lineSeriesRef.current;
+    if (!chart || !cSeries || !lSeries) return;
+    if (displayData.length === 0) return;
+
+    const sorted = [...displayData].sort(
+      (a, b) => (a.time as number) - (b.time as number),
+    );
+    const last = sorted[sorted.length - 1];
+
+    // Only call update() for incremental additions (not full reloads)
+    if (sorted.length > prevDataLenRef.current && prevDataLenRef.current > 0) {
+      try {
+        if (chartType === "candlestick") {
+          cSeries.update(last as CandlestickData);
+        } else {
+          lSeries.update({ time: last.time, value: last.close });
+        }
+      } catch {
+        // If update fails (e.g., time not strictly increasing), setData handles it
+      }
+    }
+    prevDataLenRef.current = sorted.length;
+  }, [displayData, chartType]);
 
   return (
     <div className="w-full space-y-4">

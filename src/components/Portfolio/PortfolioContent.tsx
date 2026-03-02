@@ -8,12 +8,13 @@ import {
   Calendar,
   ArrowUpRight,
   Wallet,
+  RefreshCw,
 } from "lucide-react";
-// import { AssetDetail } from "../components/asset-detail";
 import { useNavigate } from "react-router-dom";
 import { WalletContext } from "@/contexts/WalletContext";
-import { useContext, useEffect, useState } from "react";
+import { useContext, useEffect, useState, useCallback } from "react";
 import { fetchDataFromDatabase } from "@/utils/supabase";
+import { fetchAssetMetadataFromIPFS } from "@/utils/hedera-integration";
 import { AssetMetadata } from "@/utils/assets";
 
 const portfolioData = {
@@ -47,32 +48,55 @@ export function PortfolioContent() {
   const [calculatedPortfolioData, setCalculatedPortfolioData] =
     useState(portfolioData);
 
-  useEffect(() => {
-    if (accountId) {
-      loadPortfolioData();
-    }
-  }, [accountId]);
-
-  const loadPortfolioData = async () => {
+  const loadPortfolioData = useCallback(async () => {
     try {
       setLoadingAssets(true);
+      // 1. Fetch raw DB rows (tokenId, metadataCID, owner, created_at)
       const assets = await fetchDataFromDatabase();
 
       if (assets && Array.isArray(assets)) {
-        // Transform assets into holdings format
-        const transformedHoldings: HoldingData[] = assets
-          .filter((asset: any) => asset.owner === accountId)
-          .map((asset: any, index: number) => {
-            const metadata = asset.metadata || {};
-            const tokenomics = metadata.tokenomics || {};
-            const location = metadata.location || {};
+        // 2. Filter to only the connected account's assets
+        const ownedAssets = assets.filter(
+          (asset: any) => asset.owner === accountId,
+        );
+
+        // 3. For each owned asset, fetch the actual IPFS metadata using metadataCID
+        const transformedHoldings: HoldingData[] = await Promise.all(
+          ownedAssets.map(async (asset: any, index: number) => {
+            let metadata: AssetMetadata | null = null;
+
+            if (asset.metadataCID) {
+              try {
+                metadata = await fetchAssetMetadataFromIPFS(asset.metadataCID);
+              } catch (err) {
+                console.warn(
+                  `Failed to fetch IPFS metadata for CID ${asset.metadataCID}:`,
+                  err,
+                );
+              }
+            }
+
+            const tokenomics: AssetMetadata["tokenomics"] =
+              metadata?.tokenomics ?? {
+                assetValue: 0,
+                tokenSupply: 0,
+                projectedIncome: 0,
+                annualIncome: 0,
+                pricePerTokenUSD: 0,
+                dividendYield: 0,
+                payoutFrequency: "",
+                nextPayout: "",
+              };
+            const location: AssetMetadata["location"] = metadata?.location ?? {
+              country: "",
+              state: "",
+              city: "",
+            };
 
             return {
               id: asset.tokenId || asset.id || `asset-${index}`,
-              name: metadata.name || "Unknown Asset",
-              location: `${location.city || "City"}, ${
-                location.state || "State"
-              }`,
+              name: metadata?.name || asset.name || "Unknown Asset",
+              location: `${location.city || "City"}, ${location.state || "State"}`,
               tokens: tokenomics.tokenSupply || 0,
               value: `$${(tokenomics.assetValue || 0).toLocaleString("en-US", {
                 minimumFractionDigits: 2,
@@ -83,9 +107,9 @@ export function PortfolioContent() {
                 {
                   minimumFractionDigits: 2,
                   maximumFractionDigits: 2,
-                }
+                },
               )}`,
-              gainPercent: "+8.0%", // Can be calculated from actual data
+              gainPercent: "+8.0%",
               yield: `${(tokenomics.dividendYield || 0).toFixed(1)}%`,
               lastDividend: `$${(
                 (tokenomics.annualIncome || 0) / 12
@@ -94,9 +118,10 @@ export function PortfolioContent() {
                 maximumFractionDigits: 2,
               })}`,
               nextDividend: tokenomics.nextPayout || "2024-02-15",
-              metadata,
+              metadata: metadata ?? undefined,
             };
-          });
+          }),
+        );
 
         setPortfolioHoldings(transformedHoldings);
 
@@ -104,12 +129,12 @@ export function PortfolioContent() {
         const totalValue = transformedHoldings.reduce(
           (sum, holding) =>
             sum + parseFloat(holding.value.replace(/[$,]/g, "")),
-          0
+          0,
         );
         const totalIncome = transformedHoldings.reduce(
           (sum, holding) =>
             sum + parseFloat(holding.lastDividend.replace(/[$,]/g, "")),
-          0
+          0,
         );
         const averageYield =
           transformedHoldings.length > 0
@@ -117,7 +142,7 @@ export function PortfolioContent() {
                 transformedHoldings.reduce(
                   (sum, holding) =>
                     sum + parseFloat(holding.yield.replace("%", "")),
-                  0
+                  0,
                 ) / transformedHoldings.length
               ).toFixed(1)
             : "0.0";
@@ -145,7 +170,13 @@ export function PortfolioContent() {
     } finally {
       setLoadingAssets(false);
     }
-  };
+  }, [accountId]);
+
+  useEffect(() => {
+    if (accountId) {
+      loadPortfolioData();
+    }
+  }, [accountId, loadPortfolioData]);
 
   if (!accountId) {
     return (
@@ -199,13 +230,28 @@ export function PortfolioContent() {
             Track your real estate investments and earnings
           </p>
         </div>
-        <Button
-          onClick={() => navigate("/add-asset")}
-          variant="default"
-          className="pointer"
-        >
-          + Add Asset
-        </Button>
+        <div className="flex items-center gap-3">
+          {/* Reload button — refreshes holdings without a full page reload */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={loadPortfolioData}
+            disabled={loadingAssets}
+            title="Reload portfolio"
+          >
+            <RefreshCw
+              className={`h-4 w-4 mr-2 ${loadingAssets ? "animate-spin" : ""}`}
+            />
+            {loadingAssets ? "Refreshing…" : "Refresh"}
+          </Button>
+          <Button
+            onClick={() => navigate("/add-asset")}
+            variant="default"
+            className="pointer"
+          >
+            + Add Asset
+          </Button>
+        </div>
       </div>
 
       {/* Portfolio Overview */}
@@ -279,13 +325,25 @@ export function PortfolioContent() {
 
       {/* Holdings */}
       <Card>
-        <CardHeader>
+        <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle>Your Holdings</CardTitle>
+          {/* Inline reload icon on the holdings card header */}
+          <button
+            onClick={loadPortfolioData}
+            disabled={loadingAssets}
+            title="Reload holdings"
+            className="p-1 rounded hover:bg-muted transition-colors disabled:opacity-50"
+          >
+            <RefreshCw
+              className={`h-4 w-4 text-muted-foreground ${loadingAssets ? "animate-spin" : ""}`}
+            />
+          </button>
         </CardHeader>
         <CardContent>
           {loadingAssets ? (
-            <div className="flex items-center justify-center py-8">
-              <p className="text-muted-foreground">Loading your holdings...</p>
+            <div className="flex items-center justify-center py-8 gap-3">
+              <RefreshCw className="h-5 w-5 animate-spin text-muted-foreground" />
+              <p className="text-muted-foreground">Loading your holdings…</p>
             </div>
           ) : portfolioHoldings.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-8 text-center">
@@ -324,7 +382,8 @@ export function PortfolioContent() {
                           Tokens Owned
                         </p>
                         <p className="font-medium">
-                          {holding.tokens.toLocaleString()}
+                          {holding.tokens.toLocaleString()}{" "}
+                          {holding.metadata?.tokenConfig?.symbol}
                         </p>
                       </div>
                       <div>

@@ -3,9 +3,7 @@ import PropTypes from "prop-types";
 import { useAccount, useConnect, useDisconnect } from "wagmi";
 import { walletConnectFcn } from "@/hooks/walletConnect";
 import { DAppSigner } from "@hashgraph/hedera-wallet-connect";
-import {
-  getUserProfile,
-} from "@/utils/mirror-node-client";
+import { getUserProfile } from "@/utils/mirror-node-client";
 import { getBalanceFromMirrorNode } from "@/hooks/accountBalance";
 interface WalletContextType {
   walletData: any;
@@ -52,14 +50,17 @@ const WalletProvider = ({ children }: { children: ReactNode }) => {
   // Hedera wallet connect (dynamic import)
   const connectWallet = async () => {
     try {
-      // const WalletConnectModule = await import("@/hooks/walletConnect");
-      // await WalletConnectModule.hc.init();
-      // console.log("WalletConnectModule: ", WalletConnectModule);
+      console.log("Starting wallet connection...");
       const { dAppConnector } = await walletConnectFcn();
+
+      console.log("Opening WalletConnect modal...");
       await dAppConnector.openModal();
+
+      console.log("Session established, getting signers...");
       const signer = dAppConnector.signers[0];
       if (signer) {
         const userAccountId = signer.getAccountId().toString();
+        console.log("Connected to account:", userAccountId);
         setAccountId(userAccountId);
         setWalletData(dAppConnector);
         setSigner(signer);
@@ -70,11 +71,16 @@ const WalletProvider = ({ children }: { children: ReactNode }) => {
           const profile = await getUserProfile(userAccountId);
           setUserProfile(profile);
         } catch (e) {
+          console.error("Error fetching user profile:", e);
           setUserProfile(null);
         }
+      } else {
+        console.warn("No signer found after connecting.");
       }
     } catch (error: any) {
-      console.log("Error message: ", error.message);
+      console.error("Error connecting Hedera wallet:", error.message);
+      // If it's the "WalletConnect is not initialized" error, maybe wait a bit?
+      // No, we already try to init in walletConnectFcn
     }
   };
 
@@ -145,9 +151,8 @@ const WalletProvider = ({ children }: { children: ReactNode }) => {
     let isMounted = true;
     (async () => {
       try {
-        const { default: accountBalance } = await import(
-          "@/hooks/accountBalance"
-        );
+        const { default: accountBalance } =
+          await import("@/hooks/accountBalance");
         await getBalanceFromMirrorNode(accountId);
         const newBalance = await accountBalance(accountId);
         if (isMounted) setBalance(newBalance as string | null);
@@ -187,7 +192,7 @@ const WalletProvider = ({ children }: { children: ReactNode }) => {
       isEvmConnected,
       walletType,
       signer,
-    ]
+    ],
   );
 
   return (

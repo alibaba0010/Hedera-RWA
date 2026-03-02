@@ -2,13 +2,14 @@
 
 import { useEffect, useState, useMemo } from "react";
 import { useParams } from "react-router-dom";
-import {  fetchAssetMetadataFromIPFS } from "@/utils/hedera-integration";
+import { fetchAssetMetadataFromIPFS } from "@/utils/hedera-integration";
 import { getTokenIdByMetadataCID } from "@/utils/supabase";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { TradingPanel } from "./TradingPanel";
+import { AdminPanel } from "./AdminPanel";
 import {
   ChevronLeft,
   ChevronRight,
@@ -17,8 +18,10 @@ import {
   X,
 } from "lucide-react";
 import type { AssetMetadata } from "@/utils/assets";
-import { subscribeToPriceUpdates, unsubscribeFromPriceUpdates } from "@/utils/trading";
-
+import {
+  subscribeToPriceUpdates,
+  unsubscribeFromPriceUpdates,
+} from "@/utils/trading";
 
 const AssetDetails = () => {
   const { metadataCID } = useParams();
@@ -115,7 +118,7 @@ const AssetDetails = () => {
       subscribeToPriceUpdates(
         tokenId,
         (price) => setCurrentPrice(price),
-        assetData.tokenomics.pricePerTokenUSD
+        assetData.tokenomics.pricePerTokenUSD,
       );
 
       // Cleanup subscription
@@ -226,7 +229,10 @@ const AssetDetails = () => {
               <div>
                 <h3 className="font-semibold">Price per Token</h3>
                 <p className="text-lg">
-                  ${(currentPrice || assetData.tokenomics.pricePerTokenUSD).toFixed(4)}
+                  $
+                  {(
+                    currentPrice || assetData.tokenomics.pricePerTokenUSD
+                  ).toFixed(4)}
                 </p>
               </div>
               <div>
@@ -244,7 +250,7 @@ const AssetDetails = () => {
                     <button
                       onClick={() => {
                         const index = assetFiles.findIndex(
-                          (file) => file.title === "Legal Documents"
+                          (file) => file.title === "Legal Documents",
                         );
                         if (index !== -1) {
                           setCurrentAssetIndex(index);
@@ -261,7 +267,7 @@ const AssetDetails = () => {
                     <button
                       onClick={() => {
                         const index = assetFiles.findIndex(
-                          (file) => file.title === "Valuation Report"
+                          (file) => file.title === "Valuation Report",
                         );
                         if (index !== -1) {
                           setCurrentAssetIndex(index);
@@ -304,6 +310,11 @@ const AssetDetails = () => {
               </div>
             )}
           </Card>
+
+          {/* Admin Controls */}
+          {tokenId && assetData && (
+            <AdminPanel tokenId={tokenId} assetOwner={assetData.owner} />
+          )}
         </div>
 
         {/* Trading Section */}

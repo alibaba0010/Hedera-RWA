@@ -29,3 +29,7 @@ next-env.d.ts
 bin.ts
 bin.tsx
 dist
+
+# Except for the main README file
+!README.md
+*.md

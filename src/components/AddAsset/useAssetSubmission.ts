@@ -188,6 +188,7 @@ export function useAssetSubmission() {
           signer,
           supplyType: form.supplyType === "infinite" ? "INFINITE" : "FINITE",
           maxSupply: form.supplyType === "finite" ? supplyValue : null,
+          requireKyc: !!form.kycKey,
         });
       } catch (tokenError: unknown) {
         throw new Error(

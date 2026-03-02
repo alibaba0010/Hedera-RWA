@@ -84,6 +84,19 @@ The Hedera RWA Marketplace is a full-stack decentralized application that bridge
 - Track order status (pending, completed, failed)
 - Search and filter orders
 
+### 6. Automated Compliance (KYC)
+
+- Native Hedera `kycKey` integration for real-estate security tokens
+- Admin-gated Compliance Dashboard for asset creators
+- One-click `TokenGrantKycTransaction` to instantly permit verified accounts to trade
+
+### 7. Micro-Dividend Yield Automations (On-Chain)
+
+- Mirror Node integration to dynamically scrape active token holders
+- Algorithmic fractional ownership calculations
+- Instantaneous, low-fee HBAR dividend drops to thousands of holders via batch `TransferTransaction`
+- Fully automated yield-generation lifecycle
+
 ---
 
 ## 📋 Project Structure
@@ -351,7 +364,7 @@ const { status } = await buyAssetToken(
   amount,
   signer,
   tradingPair, // "HBAR" or "USDC"
-  totalValue
+  totalValue,
 );
 ```
 
@@ -363,7 +376,7 @@ const { status } = await sellAssetToken(
   accountId,
   amount,
   signer,
-  totalValue
+  totalValue,
 );
 ```
 
@@ -371,6 +384,22 @@ const { status } = await sellAssetToken(
 
 ```typescript
 const metadata = await fetchAssetMetadataFromIPFS(metadataCID);
+```
+
+**`grantKyc()`** - Pass compliance verification for a user wallet
+
+```typescript
+await grantKyc(tokenId, accountIdToGrant);
+```
+
+**`distributeYield()`** - Proportionally drop HBAR to all active holders
+
+```typescript
+const { totalDistributed } = await distributeYield(
+  tokenId,
+  yieldAmountHbar,
+  signer,
+);
 ```
 
 ### Trading Utils (`src/utils/trading.ts`)
@@ -383,7 +412,7 @@ subscribeToPriceUpdates(
   (price) => {
     console.log(`New price: $${price}`);
   },
-  initialPrice
+  initialPrice,
 );
 ```
 

@@ -1,4 +1,3 @@
-// "use client";
 import {
   DAppConnector,
   HederaChainId,
@@ -8,30 +7,44 @@ import {
 import { LedgerId } from "@hashgraph/sdk";
 import { getEnv } from "@/utils";
 
-// const env = "testnet";
-// const projectId = "0c306a1b7d3106ac56154e190058a550";
-
+let dAppConnectorInstance: DAppConnector | null = null;
 
 export async function walletConnectFcn() {
+  if (dAppConnectorInstance) {
+    return { dAppConnector: dAppConnectorInstance };
+  }
+
   const walletConnectProjectId = getEnv("VITE_PUBLIC_PROJECT_ID");
+  console.log(
+    "Initializing WalletConnect with Project ID:",
+    walletConnectProjectId,
+  );
 
   const appMetadata = {
-    name: "HederaDEX",
-    description: "Advanced DEX Aggregator for Hedera.",
+    name: "Hedera-RWA Marketplace",
+    description: "Real World Asset Marketplace on Hedera",
     icons: ["https://avatars.githubusercontent.com/u/31002956?s=200&v=4"],
-    url: window.location.origin,
+    url:
+      typeof window !== "undefined"
+        ? window.location.origin
+        : "http://localhost:3000",
   };
-
-  const dAppConnector = new DAppConnector(
+  dAppConnectorInstance = new DAppConnector(
     appMetadata,
     LedgerId.TESTNET,
     walletConnectProjectId,
     Object.values(HederaJsonRpcMethod),
     [HederaSessionEvent.ChainChanged, HederaSessionEvent.AccountsChanged],
-    [HederaChainId.Mainnet, HederaChainId.Testnet]
+    [HederaChainId.Mainnet, HederaChainId.Testnet],
   );
+  try {
+    await dAppConnectorInstance.init({ logger: "error" });
+    console.log("WalletConnect initialized successfully");
+  } catch (error) {
+    console.error("Failed to initialize WalletConnect:", error);
+    dAppConnectorInstance = null; // Reset on failure so it can be retried
+    throw error;
+  }
 
-  await dAppConnector.init({ logger: "error" });
-
-  return { dAppConnector };
+  return { dAppConnector: dAppConnectorInstance };
 }

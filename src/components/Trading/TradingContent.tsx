@@ -20,10 +20,16 @@ import {
   unsubscribeFromPriceUpdates,
   getTokenChartData,
   generateOrderBook,
+  updateTokenPrice,
 } from "@/utils/trading";
-import { supabase, fetchDataFromDatabase } from "@/utils/supabase";
+import { supabase, fetchDataFromDatabase, saveOrder } from "@/utils/supabase";
 import { fetchAssetMetadataFromIPFS } from "@/utils/hedera-integration";
 import { TradingChart } from "./TradingChart";
+import { WalletContext } from "@/contexts/WalletContext";
+import { useContext } from "react";
+import { TokenAssociationManager } from "@/utils/token-association";
+import { TokenId } from "@hashgraph/sdk";
+import { usdcTokenId } from "@/utils/index";
 
 const orderBook = {
   bids: [
@@ -81,6 +87,7 @@ const myOrders = [
 ];
 
 export function TradingContent() {
+  const { accountId, signer } = useContext(WalletContext);
   const [assets, setAssets] = useState<any[]>([]);
   const [selectedAsset, setSelectedAsset] = useState<string>("");
   const [orderType, setOrderType] = useState("limit");
@@ -95,6 +102,9 @@ export function TradingContent() {
   const [liveTrades, setLiveTrades] = useState<any[]>([]);
   const [currentPrice, setCurrentPrice] = useState<number | null>(null);
   const [orders, setOrders] = useState<any[]>([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [orderError, setOrderError] = useState<string | null>(null);
+  const [orderSuccess, setOrderSuccess] = useState<string | null>(null);
 
   // assets will be populated from Supabase/asset_metadata and enriched with IPFS metadata
   const selectedAssetMeta =
@@ -224,30 +234,36 @@ export function TradingContent() {
         subscribeToPriceUpdates(
           tokenId,
           (price: number) => {
+            if (!isMounted) return;
             setCurrentPrice(price);
 
-            // append or update last candle
+            // Keep chart data in sync: merge the new price into the current candle
+            // or start a new 1-minute candle
             setChartData((prev) => {
               const next = [...prev];
               const last = next[next.length - 1];
               const nowSec = Math.floor(Date.now() / 1000);
+              const CANDLE_WINDOW_SEC = 60;
 
-              if (!last || nowSec - last.time > 60 * 60) {
-                // create new candle
+              if (
+                !last ||
+                nowSec - (last.time as number) >= CANDLE_WINDOW_SEC
+              ) {
+                const open = last ? last.close : price;
                 next.push({
                   time: nowSec,
-                  open: price,
-                  high: price * (1 + Math.random() * 0.02),
-                  low: price * (1 - Math.random() * 0.02),
+                  open,
+                  high: Math.max(open, price),
+                  low: Math.min(open, price),
                   close: price,
-                  volume: Math.floor(Math.random() * 1000),
+                  volume: 0,
                 });
               } else {
-                // update last candle close/high/low
-                last.close = price;
-                last.high = Math.max(last.high, price);
-                last.low = Math.min(last.low, price);
-                last.volume = last.volume + Math.floor(Math.random() * 200);
+                const updated = { ...last };
+                updated.close = price;
+                updated.high = Math.max(updated.high, price);
+                updated.low = Math.min(updated.low, price);
+                next[next.length - 1] = updated;
               }
 
               return next.slice(-200);
@@ -351,6 +367,127 @@ export function TradingContent() {
       }
     } catch (e) {
       console.error("Failed to cancel order:", e);
+    }
+  };
+
+  /**
+   * Core buy/sell handler.
+   * 1. Validates inputs.
+   * 2. Saves a pending order row.
+   * 3. Calls updateTokenPrice() which:
+   *    a. inserts into trade_history (triggers Supabase realtime → chart auto-updates)
+   *    b. immediately notifies all in-memory price listeners
+   * 4. Saves a trade_history record and marks order as completed.
+   */
+  const placeOrder = async () => {
+    setOrderError(null);
+    setOrderSuccess(null);
+
+    if (!selectedAssetMeta) {
+      setOrderError("No asset selected.");
+      return;
+    }
+
+    const qty = Number(quantity);
+    if (!qty || qty <= 0) {
+      setOrderError("Please enter a valid quantity.");
+      return;
+    }
+
+    const resolvedPrice =
+      orderType === "market"
+        ? (currentPrice ?? selectedAssetMeta.initialPrice)
+        : Number(price);
+
+    if (!resolvedPrice || resolvedPrice <= 0) {
+      setOrderError("Please enter a valid price.");
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const tokenId = selectedAssetMeta.tokenId;
+      const prevPrice = currentPrice ?? selectedAssetMeta.initialPrice;
+
+      // --- Token Association Check ---
+      const tokenManager = new TokenAssociationManager();
+      const wallet = {
+        type: "hedera" as const,
+        accountId: accountId!,
+        signer:
+          (window as any).signer || (window as any).dAppConnector?.signers[0], // fallback or context signer
+      };
+
+      // Check if user is associated
+      const isAssociated = await tokenManager.isTokenAssociated(
+        wallet as any,
+        tokenId,
+      );
+
+      if (!isAssociated) {
+        setOrderSuccess("Associating token with your wallet...");
+        try {
+          await tokenManager.associateToken(wallet as any, tokenId);
+        } catch (assocErr: any) {
+          throw new Error(`Failed to associate token: ${assocErr.message}`);
+        }
+      }
+      // -------------------------------
+
+      // Save the order to Supabase
+      let savedOrder: any = null;
+      try {
+        savedOrder = await saveOrder({
+          token_id: tokenId,
+          amount: qty * 100, // stored in minor units (×100)
+          price: resolvedPrice,
+          order_type: side as "buy" | "sell",
+          status: "pending",
+          buyer_id: accountId || "anonymous",
+          target_price: orderType === "limit" ? resolvedPrice : null,
+        });
+      } catch (err) {
+        // Non-fatal: proceed even if order row fails
+        console.warn("Could not save order row:", err);
+      }
+
+      // Calculate new price and broadcast update
+      const newPrice = await updateTokenPrice(
+        tokenId,
+        prevPrice,
+        qty,
+        side as "buy" | "sell",
+        accountId || "anonymous",
+      );
+
+      // Immediately reflect new price in the UI
+      setCurrentPrice(newPrice);
+
+      // Mark order as completed
+      if (savedOrder?.id) {
+        try {
+          await supabase
+            .from("orders")
+            .update({ status: "completed", filled: qty })
+            .eq("id", savedOrder.id);
+        } catch (err) {
+          console.warn("Could not update order status:", err);
+        }
+      }
+
+      const direction = side === "buy" ? "📈" : "📉";
+      setOrderSuccess(
+        `${direction} Order filled! ${qty} tokens at $${newPrice.toFixed(4)} (was $${prevPrice.toFixed(4)})`,
+      );
+
+      // Reset form
+      setQuantity("");
+      if (orderType === "limit") setPrice("");
+    } catch (err: any) {
+      console.error("placeOrder error:", err);
+      setOrderError(err?.message || "Order failed. Please try again.");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -586,13 +723,30 @@ export function TradingContent() {
                                 Number.parseFloat(price) *
                                 Number.parseFloat(quantity)
                               ).toFixed(2)
-                            : "0.00"}
+                            : orderType === "market" && quantity
+                              ? (
+                                  (currentPrice ??
+                                    selectedAssetMeta?.initialPrice ??
+                                    0) * Number.parseFloat(quantity)
+                                ).toFixed(2)
+                              : "0.00"}
                         </span>
                       </div>
                     </div>
 
-                    <Button className="w-full bg-green-600 hover:bg-green-700">
-                      Place Buy Order
+                    {orderError && side === "buy" && (
+                      <p className="text-xs text-red-500">{orderError}</p>
+                    )}
+                    {orderSuccess && side === "buy" && (
+                      <p className="text-xs text-green-600">{orderSuccess}</p>
+                    )}
+
+                    <Button
+                      className="w-full bg-green-600 hover:bg-green-700"
+                      onClick={placeOrder}
+                      disabled={isSubmitting}
+                    >
+                      {isSubmitting ? "Placing…" : "Place Buy Order"}
                     </Button>
                   </TabsContent>
 
@@ -632,8 +786,19 @@ export function TradingContent() {
                       />
                     </div>
 
-                    <Button className="w-full bg-red-600 hover:bg-red-700">
-                      Place Sell Order
+                    {orderError && side === "sell" && (
+                      <p className="text-xs text-red-500">{orderError}</p>
+                    )}
+                    {orderSuccess && side === "sell" && (
+                      <p className="text-xs text-green-600">{orderSuccess}</p>
+                    )}
+
+                    <Button
+                      className="w-full bg-red-600 hover:bg-red-700"
+                      onClick={placeOrder}
+                      disabled={isSubmitting}
+                    >
+                      {isSubmitting ? "Placing…" : "Place Sell Order"}
                     </Button>
                   </TabsContent>
                 </Tabs>

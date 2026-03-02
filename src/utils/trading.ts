@@ -8,7 +8,7 @@ interface PriceUpdate {
 }
 
 interface ChartDataPoint {
-  time: string;
+  time: number; // Unix timestamp in seconds (required by lightweight-charts)
   open: number;
   high: number;
   low: number;
@@ -64,36 +64,46 @@ class PriceManager {
             timestamp: new Date(trade.created_at).getTime(),
             volume: trade.volume,
           });
-        }
+        },
       )
       .subscribe();
   }
 
-  private handlePriceUpdate(update: PriceUpdate) {
+  public handlePriceUpdate(update: PriceUpdate) {
     const tokenHistory = this.priceHistory.get(update.tokenId) || [];
-    const lastPrice =
-      tokenHistory.length > 0
-        ? tokenHistory[tokenHistory.length - 1].price
-        : update.price;
+    const nowSec = Math.floor(update.timestamp / 1000);
+    // 1-minute candle window
+    const CANDLE_WINDOW_SEC = 60;
 
-    const newDataPoint: ChartDataPoint = {
-      time: new Date(update.timestamp).toLocaleTimeString(),
-      open: lastPrice,
-      close: update.price,
-      high: Math.max(lastPrice, update.price),
-      low: Math.min(lastPrice, update.price),
-      volume: update.volume,
-      price: update.price,
-    };
+    const last = tokenHistory[tokenHistory.length - 1];
 
-    // Keep last 24 data points
-    if (tokenHistory.length >= 24) {
-      tokenHistory.shift();
+    if (!last || nowSec - (last.time as number) >= CANDLE_WINDOW_SEC) {
+      // Start a new candle
+      const open = last ? last.close : update.price;
+      const newDataPoint: ChartDataPoint = {
+        time: nowSec,
+        open,
+        close: update.price,
+        high: Math.max(open, update.price),
+        low: Math.min(open, update.price),
+        volume: update.volume,
+        price: update.price,
+      };
+      // Keep last 200 data points
+      if (tokenHistory.length >= 200) tokenHistory.shift();
+      tokenHistory.push(newDataPoint);
+    } else {
+      // Update the current candle in-place
+      last.close = update.price;
+      last.high = Math.max(last.high, update.price);
+      last.low = Math.min(last.low, update.price);
+      last.volume += update.volume;
+      last.price = update.price;
     }
-    tokenHistory.push(newDataPoint);
+
     this.priceHistory.set(update.tokenId, tokenHistory);
 
-    // Notify listeners
+    // Notify all listeners immediately
     this.notifyListeners(update.tokenId, update.price);
   }
 
@@ -112,7 +122,7 @@ class PriceManager {
 
   public unsubscribeFromPrice(
     tokenId: string,
-    callback: (price: number) => void
+    callback: (price: number) => void,
   ) {
     const tokenListeners = this.listeners.get(tokenId);
     if (tokenListeners) {
@@ -148,7 +158,7 @@ class PriceManager {
     if (trades && trades.length > 0) {
       // Convert trade history to chart data points
       const chartData = trades.map((trade: TokenTrade) => ({
-        time: new Date(trade.created_at).toLocaleTimeString(),
+        time: Math.floor(new Date(trade.created_at).getTime() / 1000),
         open: trade.price,
         close: trade.price,
         high: trade.price,
@@ -184,7 +194,7 @@ class PriceManager {
       timestamp.setHours(timestamp.getHours() - (23 - i));
 
       data.push({
-        time: timestamp.toLocaleTimeString(),
+        time: Math.floor(timestamp.getTime() / 1000),
         open: price,
         high: price,
         low: price,
@@ -223,7 +233,7 @@ export const generateOrderBook = (currentPrice: number) => {
 export const subscribeToPriceUpdates = (
   tokenId: string,
   callback: (price: number) => void,
-  initialPrice: number
+  initialPrice: number,
 ) => {
   const priceManager = PriceManager.getInstance();
   priceManager.setInitialPrice(tokenId, initialPrice);
@@ -232,7 +242,7 @@ export const subscribeToPriceUpdates = (
 
 export const unsubscribeFromPriceUpdates = (
   tokenId: string,
-  callback: (price: number) => void
+  callback: (price: number) => void,
 ) => {
   const priceManager = PriceManager.getInstance();
   priceManager.unsubscribeFromPrice(tokenId, callback);
@@ -242,29 +252,52 @@ export const updateTokenPrice = async (
   tokenId: string,
   previousPrice: number,
   tradeAmount: number,
-  tradeType: "buy" | "sell"
+  tradeType: "buy" | "sell",
+  traderId: string = "anonymous",
 ): Promise<number> => {
-  // Calculate price impact based on trade size
-  // This is a simple implementation - you might want to adjust the formula
-  const priceImpact = (tradeAmount / 10000) * 0.01; // 0.01% impact per 10,000 tokens
+  // Price impact: each 100 tokens traded moves price by ~0.5%
+  // Clamped to a max of 5% per trade to avoid extreme swings
+  const rawImpact = (tradeAmount / 100) * 0.005;
+  const priceImpact = Math.min(rawImpact, 0.05);
 
-  // Calculate new price
-  const priceChange = previousPrice * priceImpact;
   const newPrice =
     tradeType === "buy"
-      ? previousPrice * (1 + priceImpact) // Price increases when buying
-      : previousPrice * (1 - priceImpact); // Price decreases when selling
+      ? previousPrice * (1 + priceImpact) // Price rises when buying
+      : previousPrice * (1 - priceImpact); // Price falls when selling
 
-  // Update price manager
+  const roundedNewPrice = Number(newPrice.toFixed(8));
+
+  // 1. Write to Supabase trade_history — this triggers the realtime channel
+  try {
+    await supabase.from("trade_history").insert([
+      {
+        token_id: tokenId,
+        price: roundedNewPrice,
+        volume: tradeAmount,
+        trade_type: tradeType,
+        trader_id: traderId,
+        created_at: new Date().toISOString(),
+      },
+    ]);
+  } catch (err) {
+    console.warn("updateTokenPrice: could not write to trade_history:", err);
+  }
+
+  // 2. Also notify in-memory listeners immediately (no round-trip latency)
   const priceManager = PriceManager.getInstance();
-  await priceManager.setInitialPrice(tokenId, newPrice);
+  priceManager.handlePriceUpdate({
+    tokenId,
+    price: roundedNewPrice,
+    timestamp: Date.now(),
+    volume: tradeAmount,
+  });
 
-  return newPrice;
+  return roundedNewPrice;
 };
 
 export const getTokenChartData = async (
   tokenId: string,
-  initialPrice: number
+  initialPrice: number,
 ): Promise<ChartDataPoint[]> => {
   const priceManager = PriceManager.getInstance();
   await priceManager.setInitialPrice(tokenId, initialPrice);
