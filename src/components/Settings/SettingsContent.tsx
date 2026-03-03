@@ -226,53 +226,6 @@ export function SettingsContent() {
         </CardContent>
       </Card>
 
-      {/* Network Settings */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Globe className="h-5 w-5" />
-            Network Configuration
-          </CardTitle>
-          <CardDescription>
-            Configure Hedera network and connection settings
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="network">Hedera Network</Label>
-              <Select defaultValue="testnet">
-                <SelectTrigger>
-                  <SelectValue placeholder="Select network" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="testnet">Testnet</SelectItem>
-                  <SelectItem value="mainnet">Mainnet</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="mirror-node">Mirror Node URL</Label>
-              <Input
-                id="mirror-node"
-                placeholder="https://testnet.mirrornode.hedera.com"
-                defaultValue="https://testnet.mirrornode.hedera.com"
-              />
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="ipfs-gateway">IPFS Gateway</Label>
-            <Input
-              id="ipfs-gateway"
-              placeholder="https://gateway.pinata.cloud"
-              defaultValue="https://gateway.pinata.cloud"
-            />
-          </div>
-        </CardContent>
-      </Card>
-
       {/* Security Settings */}
       <Card>
         <CardHeader>

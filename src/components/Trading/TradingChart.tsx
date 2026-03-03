@@ -142,14 +142,19 @@ export const TradingChart = ({
       (a, b) => (a.time as number) - (b.time as number),
     );
 
+    // Remove duplicates (lightweight-charts requires strictly increasing time)
+    const uniqueSorted = sorted.filter(
+      (item, index, self) => index === 0 || item.time !== self[index - 1].time,
+    );
+
     if (chartType === "candlestick") {
       cSeries.applyOptions({ visible: true });
       lSeries.applyOptions({ visible: false });
-      cSeries.setData(sorted as CandlestickData[]);
+      cSeries.setData(uniqueSorted as CandlestickData[]);
     } else {
       cSeries.applyOptions({ visible: false });
       lSeries.applyOptions({ visible: true });
-      const lineData: LineData[] = sorted.map((d) => ({
+      const lineData: LineData[] = uniqueSorted.map((d) => ({
         time: d.time,
         value: d.close,
       }));
@@ -157,8 +162,8 @@ export const TradingChart = ({
     }
 
     // SMA indicator
-    if (indicators.includes("sma20") && sorted.length >= 20) {
-      const smaData = calculateSMA(sorted as OHLC[], 20);
+    if (indicators.includes("sma20") && uniqueSorted.length >= 20) {
+      const smaData = calculateSMA(uniqueSorted as OHLC[], 20);
       smaSeries.applyOptions({ visible: true });
       smaSeries.setData(smaData.map((d) => ({ time: d.time, value: d.value })));
     } else {
@@ -183,10 +188,18 @@ export const TradingChart = ({
     const sorted = [...displayData].sort(
       (a, b) => (a.time as number) - (b.time as number),
     );
-    const last = sorted[sorted.length - 1];
+    const uniqueSorted = sorted.filter(
+      (item, index, self) => index === 0 || item.time !== self[index - 1].time,
+    );
+
+    if (uniqueSorted.length === 0) return;
+    const last = uniqueSorted[uniqueSorted.length - 1];
 
     // Only call update() for incremental additions (not full reloads)
-    if (sorted.length > prevDataLenRef.current && prevDataLenRef.current > 0) {
+    if (
+      uniqueSorted.length > prevDataLenRef.current &&
+      prevDataLenRef.current > 0
+    ) {
       try {
         if (chartType === "candlestick") {
           cSeries.update(last as CandlestickData);
@@ -197,7 +210,7 @@ export const TradingChart = ({
         // If update fails (e.g., time not strictly increasing), setData handles it
       }
     }
-    prevDataLenRef.current = sorted.length;
+    prevDataLenRef.current = uniqueSorted.length;
   }, [displayData, chartType]);
 
   return (

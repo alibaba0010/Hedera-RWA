@@ -196,6 +196,11 @@ const AssetValueSupply: React.FC<AssetValueSupplyProps> = ({
             <div className="text-sm text-muted-foreground">
               Automatically calculated from asset value ÷ total supply
             </div>
+            {Number(pricePerTokenUSD) > 1 && (
+              <div className="text-xs text-amber-600 dark:text-amber-400 font-medium flex items-center gap-1 mt-1">
+                ⚠️ Warning: Price per token is greater than $1
+              </div>
+            )}
           </div>
 
           <div className="space-y-3">
@@ -299,7 +304,7 @@ const AssetValueSupply: React.FC<AssetValueSupplyProps> = ({
                 onChange={(e) => {
                   const value = Math.min(
                     100,
-                    Math.max(0, Number(e.target.value))
+                    Math.max(0, Number(e.target.value)),
                   );
                   setCustomInitialSupplyPercentage(value.toString());
                 }}

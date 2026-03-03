@@ -72,7 +72,10 @@ export async function getTokenIdByMetadataCID(metadataCID: string) {
   return data?.tokenId;
 }
 export async function fetchDataFromDatabase() {
-  const { data, error } = await supabase.from("asset_metadata").select("*");
+  const { data, error } = await supabase
+    .from("asset_metadata")
+    .select("*")
+    .order("created_at", { ascending: false });
   if (error) {
     console.error("Failed to fetch data from Supabase:", error);
     throw new Error("Failed to fetch data from database");
@@ -80,7 +83,7 @@ export async function fetchDataFromDatabase() {
   return data;
 }
 export const saveOrder = async (
-  orderData: Omit<OrderBook, "id" | "created_at">
+  orderData: Omit<OrderBook, "id" | "created_at">,
 ) => {
   const { data, error } = await supabase
     .from("orders")
@@ -97,7 +100,7 @@ export const saveOrder = async (
 };
 
 export const saveTrade = async (
-  tradeData: Omit<TradeHistory, "id" | "created_at">
+  tradeData: Omit<TradeHistory, "id" | "created_at">,
 ) => {
   const { data, error } = await supabase
     .from("trade_history")

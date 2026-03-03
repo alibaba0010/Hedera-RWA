@@ -313,7 +313,13 @@ const AssetDetails = () => {
 
           {/* Admin Controls */}
           {tokenId && assetData && (
-            <AdminPanel tokenId={tokenId} assetOwner={assetData.owner} />
+            <AdminPanel
+              tokenId={tokenId}
+              assetOwner={assetData.owner}
+              pricePerToken={
+                currentPrice || assetData.tokenomics.pricePerTokenUSD
+              }
+            />
           )}
         </div>
 

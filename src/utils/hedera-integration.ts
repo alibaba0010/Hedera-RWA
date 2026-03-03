@@ -639,11 +639,40 @@ export const distributeYield = async (
   tokenId: string,
   yieldAmountHbar: number,
   signer: DAppSigner,
+  pricePerToken: number, // Added pricePerToken as requested
 ): Promise<{ status: string; totalDistributed: number }> => {
   try {
-    const { client, treasuryId } = await initializeHederaClient();
+    const { client, treasuryId, treasuryKey } = await initializeHederaClient();
 
-    // 1. Fetch current holders of the token from testnet mirror node
+    // 1. Pre-flight checks
+    // Check 1: Should not be greater than treasury HBAR balance
+    const treasuryHbarBalance = await getHbarBalance(treasuryId.toString());
+    if (yieldAmountHbar > treasuryHbarBalance) {
+      throw new InsufficientBalanceError(
+        treasuryId.toString(),
+        yieldAmountHbar,
+        treasuryHbarBalance,
+        "HBAR (treasury)",
+      );
+    }
+
+    // Check 2: Should not be greater than (volume of token in treasury * price per token) / 100
+    const treasuryTokenBalance = await getAccountTokenBalance(
+      treasuryId.toString(),
+      tokenId,
+    );
+
+    // The user's rule: (volume * price) / 100 (due to 2 decimals mentioned in example)
+    const maxDistributionByVolume =
+      (treasuryTokenBalance * pricePerToken) / 100;
+    if (yieldAmountHbar > maxDistributionByVolume) {
+      throw new Error(
+        `Distribution amount exceeds safe limit based on treasury token volume. ` +
+          `Max allowed: ${maxDistributionByVolume.toFixed(2)} HBAR (Volume: ${treasuryTokenBalance}, Price: ${pricePerToken})`,
+      );
+    }
+
+    // 2. Fetch current holders of the token from testnet mirror node
     const url = `https://testnet.mirrornode.hedera.com/api/v1/tokens/${tokenId}/balances`;
     const res = await fetch(url);
     if (!res.ok) throw new Error("Failed to fetch token balances");
@@ -660,13 +689,13 @@ export const distributeYield = async (
       throw new Error("No holders found to distribute yield to.");
     }
 
-    // 2. Calculate proportions
+    // 3. Calculate proportions
     const totalHolderSupply = balances.reduce(
       (sum: number, b: any) => sum + Number(b.balance),
       0,
     );
 
-    // 3. Prepare TransferTransaction
+    // 4. Prepare TransferTransaction
     const transferTx = new TransferTransaction();
     let totalDistributed = 0;
 
@@ -689,10 +718,11 @@ export const distributeYield = async (
 
     // Treasury pays the entire sum distributed
     transferTx.addHbarTransfer(treasuryId, new Hbar(-totalDistributed));
-    transferTx.freezeWith(client);
 
-    // 4. Sign and execute using the DappSigner (since owner triggered this)
-    const transferSubmit = await transferTx.executeWithSigner(signer);
+    // 5. Sign with treasury key and execute
+    const frozenTx = await transferTx.freezeWithSigner(signer);
+    const signedTx = await frozenTx.sign(treasuryKey);
+    const transferSubmit = await signedTx.executeWithSigner(signer);
     const transferRx = await transferSubmit.getReceipt(client);
 
     if (transferRx.status.toString() !== "SUCCESS") {
@@ -701,6 +731,7 @@ export const distributeYield = async (
 
     return { status: transferRx.status.toString(), totalDistributed };
   } catch (error: any) {
+    if (error instanceof InsufficientBalanceError) throw error;
     console.error("Error in distributeYield:", error);
     throw new Error(`Failed to distribute yield: ${error.message}`);
   }

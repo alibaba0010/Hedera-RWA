@@ -13,9 +13,14 @@ import { useNotification } from "@/contexts/notification-context";
 interface AdminPanelProps {
   tokenId: string;
   assetOwner: string;
+  pricePerToken: number;
 }
 
-export function AdminPanel({ tokenId, assetOwner }: AdminPanelProps) {
+export function AdminPanel({
+  tokenId,
+  assetOwner,
+  pricePerToken,
+}: AdminPanelProps) {
   const { accountId, signer } = useContext(WalletContext);
   const { showNotification } = useNotification();
 
@@ -60,6 +65,7 @@ export function AdminPanel({ tokenId, assetOwner }: AdminPanelProps) {
         tokenId,
         Number(yieldAmount),
         signer,
+        pricePerToken,
       );
       showNotification({
         title: "Micro-Dividend Distributed",
