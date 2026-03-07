@@ -11,6 +11,8 @@ import {
   TrendingUp,
   Wallet,
   Store,
+  ShieldCheck,
+  Landmark,
 } from "lucide-react";
 import { Sheet, SheetContent, SheetTrigger } from "../components/ui/sheet";
 import { WalletConnection } from "@/components/wallet/wallet-connection";
@@ -22,6 +24,8 @@ export function Navbar() {
     { name: "Marketplace", href: "/marketplace", icon: Store },
     { name: "Portfolio", href: "/portfolio", icon: Wallet },
     { name: "Trading", href: "/trading", icon: TrendingUp },
+    { name: "KYC", href: "/kyc", icon: ShieldCheck },
+    { name: "Governance", href: "/governance", icon: Landmark },
     { name: "Settings", href: "/settings", icon: Settings },
   ];
 

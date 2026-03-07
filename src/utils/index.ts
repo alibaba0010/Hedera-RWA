@@ -9,12 +9,12 @@ export const tokens = [
   { symbol: "USDT", token_id: "0.0.1055472" }, //not confirmed on coingecko // let's see how it goes
   { symbol: "PANGOLIN", token_id: "0.0.1738930" },
 ];
-export const usdcTokenId = "0.0.429274"; 
+export const usdcTokenId = "0.0.429274";
 
 export async function getHbarUsdPrice(): Promise<number> {
   // Use CoinGecko API for real-time HBAR/USD price
   const res = await fetch(
-    "https://api.coingecko.com/api/v3/simple/price?ids=hedera-hashgraph&vs_currencies=usd"
+    "https://api.coingecko.com/api/v3/simple/price?ids=hedera-hashgraph&vs_currencies=usd",
   );
   const data = await res.json();
   if (!data["hedera-hashgraph"] || !data["hedera-hashgraph"].usd)
@@ -79,9 +79,14 @@ export function getEnv(key: string): string {
   }
   throw new Error(`Environment variable ${key} is not defined`);
 }
- export const topicId = TopicId.fromString(getEnv("VITE_PUBLIC_HEDERA_ASSET_TOPIC_ID"));
+export const topicId = TopicId.fromString(
+  getEnv("VITE_PUBLIC_HEDERA_ASSET_TOPIC_ID"),
+);
+export const governanceTopicId = TopicId.fromString(
+  getEnv("VITE_PUBLIC_HEDERA_GOVERNANCE_TOPIC_ID"),
+);
 
- // Helper: Hash a file (SHA-256)
+// Helper: Hash a file (SHA-256)
 export async function hashFile(file: File): Promise<string> {
   const arrayBuffer = await file.arrayBuffer();
   const hashBuffer = await crypto.subtle.digest("SHA-256", arrayBuffer);

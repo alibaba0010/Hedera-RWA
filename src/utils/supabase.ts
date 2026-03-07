@@ -34,6 +34,8 @@ export async function saveMetadataCIDToDatabase(data: {
   metadataCID: string;
   tokenId: string;
   owner: string;
+  name: string;
+  symbol: string;
   created_at: string;
 }) {
   // Ensure the table exists before inserting

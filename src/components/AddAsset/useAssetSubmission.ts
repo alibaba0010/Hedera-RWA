@@ -208,6 +208,8 @@ export function useAssetSubmission() {
         const dbData = {
           metadataCID,
           tokenId,
+          name: form.assetName,
+          symbol: form.tokenSymbol,
           owner: accountId,
           created_at: new Date().toISOString(),
         };

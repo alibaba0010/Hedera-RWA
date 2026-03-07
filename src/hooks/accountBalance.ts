@@ -18,7 +18,7 @@ const accountBalance = async (accountId: string): Promise<string | null> => {
       {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
-      }
+      },
     );
 
     return formattedBalance + " HBAR";
@@ -32,17 +32,16 @@ export default accountBalance;
 // get account balance from mirror node client
 
 export const getBalanceFromMirrorNode = async (
-  accountId: string
+  accountId: string,
 ): Promise<string | null> => {
   try {
     const response = await fetch(
-      `https://testnet.mirrornode.hedera.com/api/v1/accounts/${accountId}`
+      `https://testnet.mirrornode.hedera.com/api/v1/accounts/${accountId}`,
     );
     if (!response.ok) {
       throw new Error("Network response was not ok");
     }
     const data = await response.json();
-    console.log("Balance data from mirror node: ", data);
     // get balance of usdc token also
 
     if (data && data.balance) {

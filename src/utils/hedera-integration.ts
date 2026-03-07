@@ -73,6 +73,27 @@ export async function getAccountTokenBalance(
   );
   return tokenEntry?.balance ?? 0;
 }
+
+/**
+ * Fetches token metadata (name, symbol, decimals) directly from the Hedera Mirror Node.
+ * This is the source of truth for all HTS tokens.
+ */
+export async function getTokenMetadata(tokenId: string) {
+  try {
+    const url = `https://testnet.mirrornode.hedera.com/api/v1/tokens/${tokenId}`;
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const data = await res.json();
+    return {
+      name: data.name,
+      symbol: data.symbol,
+      decimals: Number(data.decimals),
+    };
+  } catch (error) {
+    console.error(`Failed to fetch metadata for token ${tokenId}`, error);
+    return null;
+  }
+}
 interface TradingOptions {
   tradingPair: "HBAR" | "USDC";
   value: number;
