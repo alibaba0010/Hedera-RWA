@@ -52,7 +52,7 @@ async function callGeminiVision(
   // Fallback to a hard-coded demo key if the env var is absent so the
   // page doesn't crash during development.
   const apiKey =
-    import.meta.env.VITE_PUBLIC_GEMINI_API_KEY ||
+    import.meta.env.VITE_PUBLIC_GEMINI_API ||
     "AIzaSyDemo_Key_Replace_With_Real_One";
 
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
